@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Teljes helyi/önálló stack. Coolify-n a docker-compose.coolify.yml használandó,
+# ahol a Postgres és a Redis külön, Coolify által kezelt resource.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-radovin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radovin}
+      POSTGRES_DB: ${POSTGRES_DB:-radovin_pi}
+      TZ: Europe/Budapest
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-radovin} -d ${POSTGRES_DB:-radovin_pi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: api
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-radovin}:${POSTGRES_PASSWORD:-radovin}@postgres:5432/${POSTGRES_DB:-radovin_pi}
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: api
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - evidence:/data/evidence
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  worker-http:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: worker
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-radovin}:${POSTGRES_PASSWORD:-radovin}@postgres:5432/${POSTGRES_DB:-radovin_pi}
+      REDIS_URL: redis://redis:6379
+      WORKER_MODE: http
+      SERVICE_NAME: worker-http
+    depends_on:
+      api: { condition: service_started }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - evidence:/data/evidence
+
+  worker-browser:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.browser
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-radovin}:${POSTGRES_PASSWORD:-radovin}@postgres:5432/${POSTGRES_DB:-radovin_pi}
+      REDIS_URL: redis://redis:6379
+      WORKER_MODE: browser
+      WORKER_BROWSER_CONCURRENCY: 1
+      SERVICE_NAME: worker-browser
+    depends_on:
+      api: { condition: service_started }
+    volumes:
+      - evidence:/data/evidence
+    # A bongeszo memoriaigenyes: kulon eroforraskorlat (spec 36.1)
+    shm_size: 512mb
+    deploy:
+      resources:
+        limits: { memory: 1500M }
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: scheduler
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-radovin}:${POSTGRES_PASSWORD:-radovin}@postgres:5432/${POSTGRES_DB:-radovin_pi}
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: scheduler
+    depends_on:
+      api: { condition: service_started }
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      API_INTERNAL_URL: http://api:4000
+      SERVICE_NAME: web
+    depends_on:
+      api: { condition: service_started }
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
+  redisdata:
+  evidence:

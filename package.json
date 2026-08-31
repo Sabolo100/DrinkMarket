@@ -1,0 +1,43 @@
+{
+  "name": "radovin-price-intelligence",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Webshopkozi italar-figyelo es termekazonosito rendszer (V2.1)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "build:web": "npm run build --workspace @radovin/web",
+    "typecheck": "tsc -b tsconfig.build.json --force",
+    "clean": "node scripts/clean.mjs",
+    "db:migrate": "tsx packages/db/src/cli.ts migrate",
+    "db:status": "tsx packages/db/src/cli.ts status",
+    "db:seed": "tsx packages/db/src/cli.ts seed",
+    "db:reset": "tsx packages/db/src/cli.ts reset",
+    "dev:api": "tsx watch --tsconfig tsconfig.dev.json apps/api/src/main.ts",
+    "dev:worker": "tsx watch --tsconfig tsconfig.dev.json apps/worker/src/main.ts",
+    "dev:scheduler": "tsx watch --tsconfig tsconfig.dev.json apps/scheduler/src/main.ts",
+    "dev:web": "npm run dev --workspace @radovin/web",
+    "dev": "node scripts/dev.mjs",
+    "start:api": "node apps/api/dist/main.js",
+    "start:worker": "node apps/worker/dist/main.js",
+    "start:scheduler": "node apps/scheduler/dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "golden": "tsx --tsconfig tsconfig.dev.json tests/golden/evaluate.ts",
+    "seed:demo": "tsx --tsconfig tsconfig.dev.json tests/e2e/seed-demo.ts",
+    "test:e2e": "vitest run tests/e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

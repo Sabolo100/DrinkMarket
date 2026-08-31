@@ -1,0 +1,21 @@
+{
+  "name": "@radovin/db",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./migrations/*": "./migrations/*"
+  },
+  "files": ["dist", "migrations"],
+  "dependencies": {
+    "@radovin/contracts": "*",
+    "@radovin/observability": "*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  }
+}

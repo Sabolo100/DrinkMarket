@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Közös image az api / worker / scheduler processzekhez.
+# Használat:  docker build --build-arg APP=api -f deploy/Dockerfile.node .
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-alpine AS base
+RUN apk add --no-cache tini
+WORKDIR /app
+ENV NODE_ENV=production TZ=Europe/Budapest
+
+# ── Függőségek ───────────────────────────────────────────────────────────────
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY packages/contracts/package.json      packages/contracts/
+COPY packages/observability/package.json  packages/observability/
+COPY packages/db/package.json             packages/db/
+COPY packages/domain/package.json         packages/domain/
+COPY packages/extraction/package.json     packages/extraction/
+COPY packages/crawler-core/package.json   packages/crawler-core/
+COPY packages/adapters/package.json       packages/adapters/
+COPY apps/api/package.json                apps/api/
+COPY apps/worker/package.json             apps/worker/
+COPY apps/scheduler/package.json          apps/scheduler/
+COPY apps/web/package.json                apps/web/
+RUN npm ci --omit=dev --ignore-scripts --workspaces --include-workspace-root || npm install --omit=dev --ignore-scripts
+
+# ── Fordítás ─────────────────────────────────────────────────────────────────
+FROM base AS build
+COPY package.json package-lock.json tsconfig*.json ./
+COPY packages/ packages/
+COPY apps/api/ apps/api/
+COPY apps/worker/ apps/worker/
+COPY apps/scheduler/ apps/scheduler/
+RUN npm install --ignore-scripts && npm run build
+
+# ── Futtatás ─────────────────────────────────────────────────────────────────
+FROM base AS runtime
+ARG APP=api
+ENV APP=${APP}
+
+COPY --from=deps  /app/node_modules ./node_modules
+COPY --from=build /app/packages ./packages
+COPY --from=build /app/apps/${APP}/dist ./apps/${APP}/dist
+COPY --from=build /app/apps/${APP}/package.json ./apps/${APP}/package.json
+COPY package.json ./
+
+# A migrációkat az API futásidőben olvassa (packages/db/migrations)
+RUN mkdir -p /data/evidence && chown -R node:node /data /app
+USER node
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "node apps/${APP}/dist/main.js"]

@@ -1,0 +1,165 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# COOLIFY DEPLOY
+# ─────────────────────────────────────────────────────────────────────────────
+# Ez az összeállítás azt feltételezi, hogy a PostgreSQL és a Redis KÜLÖN,
+# Coolify által kezelt resource — így a mentés, a visszaállítás és a
+# verziófrissítés a Coolify saját eszközeivel történik.
+#
+# Teendők a Coolify felületén:
+#   1. Hozz létre egy PostgreSQL 16 resource-t. Másold ki az "Internal URL"-t
+#      a DATABASE_URL környezeti változóba.
+#      A pgcrypto / pg_trgm / unaccent / btree_gin kiterjesztéseket az első
+#      migráció hozza létre; ehhez a DB-felhasználónak jogosultság kell rá
+#      (a Coolify Postgres alapértelmezett superuserével ez adott).
+#   2. Hozz létre egy Redis resource-t. Az "Internal URL" -> REDIS_URL.
+#   3. Ebben a projektben állítsd be a Docker Compose fájlt erre a fájlra.
+#   4. Töltsd ki a környezeti változókat (lásd .env.example). Kötelező:
+#        DATABASE_URL, REDIS_URL, SESSION_SECRET,
+#        BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, APP_BASE_URL
+#      A SESSION_SECRET generálása:  openssl rand -hex 32
+#   5. A `web` szolgáltatásra kösd rá a domaint (3000-es port).
+#      Az `api` NEM igényel publikus domaint: a web a belső hálózaton éri el.
+#   6. Első indulás után jelentkezz be a bootstrap adminnal, és AZONNAL
+#      változtass jelszót a felületen.
+#
+# Az adatbázis-migrációk az `api` induláskor futnak le, advisory lock alatt,
+# így több példány egyidejű indítása sem okoz ütközést.
+# ═════════════════════════════════════════════════════════════════════════════
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: api
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: api
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Budapest}
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
+      REDIS_URL: ${REDIS_URL}
+      API_PORT: 4000
+      API_HOST: 0.0.0.0
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      APP_BASE_URL: ${APP_BASE_URL}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      EVIDENCE_FS_PATH: /data/evidence
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: json
+    volumes:
+      - evidence:/data/evidence
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: web
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Budapest}
+      API_INTERNAL_URL: http://api:4000
+      PORT: 3000
+    depends_on:
+      api:
+        condition: service_healthy
+    # Erre a szolgáltatásra kösd a publikus domaint a Coolify felületén.
+    expose:
+      - "3000"
+
+  worker-http:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: worker
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: worker-http
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Budapest}
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      REDIS_URL: ${REDIS_URL}
+      WORKER_MODE: http
+      WORKER_HTTP_CONCURRENCY: ${WORKER_HTTP_CONCURRENCY:-8}
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
+      CRAWLER_CONTACT_EMAIL: ${CRAWLER_CONTACT_EMAIL:-}
+      EVIDENCE_FS_PATH: /data/evidence
+      EVIDENCE_RETENTION_DAYS: ${EVIDENCE_RETENTION_DAYS:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: json
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - evidence:/data/evidence
+
+  # A böngészős worker opcionális: csak akkor kell, ha valamelyik forrásnál
+  # nincs stabil HTTP/JSON út (spec 38/9). Nagy image, külön erőforráskerettel.
+  worker-browser:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.browser
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: worker-browser
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Budapest}
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      REDIS_URL: ${REDIS_URL}
+      WORKER_MODE: browser
+      WORKER_BROWSER_CONCURRENCY: ${WORKER_BROWSER_CONCURRENCY:-1}
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
+      EVIDENCE_FS_PATH: /data/evidence
+      LOG_FORMAT: json
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - evidence:/data/evidence
+    shm_size: 512mb
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node
+      args:
+        APP: scheduler
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: scheduler
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Budapest}
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      REDIS_URL: ${REDIS_URL}
+      SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: json
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  evidence:

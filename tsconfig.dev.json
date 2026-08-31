@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "baseUrl": ".",
+    "paths": {
+      "@radovin/contracts": ["packages/contracts/src/index.ts"],
+      "@radovin/observability": ["packages/observability/src/index.ts"],
+      "@radovin/db": ["packages/db/src/index.ts"],
+      "@radovin/domain": ["packages/domain/src/index.ts"],
+      "@radovin/extraction": ["packages/extraction/src/index.ts"],
+      "@radovin/crawler-core": ["packages/crawler-core/src/index.ts"],
+      "@radovin/adapters": ["packages/adapters/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Böngészős worker. Külön image, mert a Playwright + Chromium nagy;
+# a HTTP workernek nincs rá szüksége (spec 38/9: a böngésző nem alapértelmezés).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/playwright:v1.49.1-noble AS base
+WORKDIR /app
+ENV NODE_ENV=production TZ=Europe/Budapest WORKER_MODE=browser
+
+FROM base AS build
+COPY package.json package-lock.json tsconfig*.json ./
+COPY packages/ packages/
+COPY apps/worker/ apps/worker/
+RUN npm install --ignore-scripts && npm run build
+
+FROM base AS runtime
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages ./packages
+COPY --from=build /app/apps/worker/dist ./apps/worker/dist
+COPY --from=build /app/apps/worker/package.json ./apps/worker/package.json
+COPY package.json ./
+# A Playwright opcionális függőség: itt telepítjük, hogy a browser mód éljen.
+RUN npm install playwright@^1.49.1 --no-save --ignore-scripts \
+ && npx playwright install chromium --with-deps || true
+RUN mkdir -p /data/evidence
+CMD ["node", "apps/worker/dist/main.js"]

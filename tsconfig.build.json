@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/observability" },
+    { "path": "packages/db" },
+    { "path": "packages/domain" },
+    { "path": "packages/extraction" },
+    { "path": "packages/crawler-core" },
+    { "path": "packages/adapters" },
+    { "path": "apps/api" },
+    { "path": "apps/worker" },
+    { "path": "apps/scheduler" }
+  ]
+}

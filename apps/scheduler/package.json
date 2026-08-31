@@ -1,0 +1,18 @@
+{
+  "name": "@radovin/scheduler",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@radovin/contracts": "*",
+    "@radovin/db": "*",
+    "@radovin/observability": "*",
+    "bullmq": "^5.34.10",
+    "ioredis": "^5.4.2",
+    "zod": "^3.24.1"
+  }
+}

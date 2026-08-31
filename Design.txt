@@ -1,0 +1,915 @@
+Az alábbi promptot úgy érdemes használni, hogy ne egyszerűen „szép weboldalt” kérjen, hanem egyszerre adjon kreatív rendezői, UX/UI, motion, technikai és QA feladatot. Beépítettem azt is, hogy kerülje a tipikus AI-generált webdesign kliséket, és egyetlen erős, következetes vizuális koncepció köré építse az oldalt.
+
+# MASTER PROMPT — DESIGN AND BUILD A WORLD-CLASS, DISTINCTIVE WEBSITE
+
+You are simultaneously acting as:
+
+* an award-winning Digital Creative Director,
+* a world-class UX/UI Designer,
+* an elite Creative Technologist,
+* a senior Web Motion Designer,
+* a senior Front-End Engineer,
+* a Conversion and Brand Strategist,
+* and a meticulous Creative QA Director.
+
+Your task is to transform **[BRAND / COMPANY / PRODUCT]** into a genuinely distinctive, premium, modern website that feels as if it were conceived and crafted by one of the world’s best independent digital studios.
+
+The website must NOT feel like a template, a generic SaaS landing page, a standard Webflow/Framer site, or an obviously AI-generated design.
+
+The final result should have a clear creative idea, a recognizable visual identity, excellent typography, carefully designed layouts, meaningful interaction, sophisticated motion, strong storytelling, and flawless execution.
+
+The goal is not to add as many effects as possible.
+
+The goal is to create **one coherent, memorable digital experience where concept, visual design, storytelling, interaction and technology reinforce each other.**
+
+---
+
+# 1. UNDERSTAND THE BRAND FIRST
+
+Before designing anything, study all supplied information about:
+
+* the company,
+* its products and services,
+* target audiences,
+* competitors,
+* positioning,
+* business goals,
+* tone of voice,
+* brand personality,
+* existing visual identity,
+* available imagery,
+* content,
+* references,
+* and technical constraints.
+
+Identify:
+
+1. What is genuinely distinctive about this brand?
+2. What should a visitor understand within the first 5 seconds?
+3. What should they remember after leaving?
+4. What emotional impression should the website create?
+5. What is the main conversion goal?
+6. What visual or interactive metaphor could uniquely represent the brand?
+
+Do NOT start by choosing a standard website layout.
+
+First define the **central creative concept**.
+
+The entire site should feel as if it grew from this idea.
+
+---
+
+# 2. CREATE A HIGH-END CREATIVE DIRECTION
+
+Develop a complete creative direction for the website.
+
+Define:
+
+* overall visual concept,
+* mood,
+* visual personality,
+* art direction,
+* typography,
+* color system,
+* spacing system,
+* grid,
+* layout philosophy,
+* image treatment,
+* illustration style,
+* 3D language if appropriate,
+* iconography,
+* graphic motifs,
+* surfaces,
+* borders,
+* depth,
+* lighting,
+* texture,
+* motion philosophy,
+* and interaction language.
+
+The design must feel:
+
+* custom,
+* intentional,
+* contemporary,
+* sophisticated,
+* confident,
+* technically advanced,
+* visually memorable,
+* and appropriate for the brand.
+
+Avoid design choices simply because they are currently fashionable.
+
+Every major stylistic choice should support the brand story.
+
+---
+
+# 3. CREATE ONE STRONG SIGNATURE VISUAL IDEA
+
+The website needs a recognizable **signature visual system**.
+
+Find one central visual metaphor, transformation, spatial idea, object, system, animation or graphic principle that can recur throughout the experience.
+
+Examples of possible approaches — only use these if genuinely relevant:
+
+* evolution,
+* transformation,
+* expanding capability,
+* changing states,
+* modular systems,
+* networks,
+* layers,
+* physical-to-digital transitions,
+* progressive complexity,
+* adaptive structures,
+* spatial environments,
+* data becoming form,
+* fragmented elements becoming complete,
+* controlled generative systems.
+
+Do not combine many unrelated visual metaphors.
+
+Choose the strongest one and develop it deeply.
+
+This signature idea should influence:
+
+* hero,
+* section transitions,
+* graphics,
+* diagrams,
+* interactions,
+* imagery,
+* animations,
+* navigation details,
+* and possibly the loading experience.
+
+---
+
+# 4. DESIGN A SIGNATURE HERO
+
+Create a hero section that is immediately recognizable and could not simply be reused for another company.
+
+The hero must communicate the brand’s core proposition within seconds.
+
+Design:
+
+* headline hierarchy,
+* supporting copy,
+* CTA structure,
+* composition,
+* visual focal point,
+* imagery / animation / 3D / generative graphics,
+* spatial depth,
+* lighting,
+* background,
+* foreground elements,
+* interaction,
+* cursor response,
+* entrance sequence,
+* and transition into the next section.
+
+The visual concept should dominate the hero, not decorative UI.
+
+Avoid the standard formula:
+
+headline + paragraph + two buttons + dashboard mockup.
+
+Instead create a real composition.
+
+The hero should feel almost like the opening scene of a carefully directed digital experience.
+
+However, clarity must remain stronger than spectacle.
+
+---
+
+# 5. DESIGN THE COMPLETE WEBSITE JOURNEY
+
+Design the whole website as one continuous narrative.
+
+Map the optimal page structure based on the actual business goals rather than following a generic landing-page formula.
+
+Consider sections such as:
+
+* navigation,
+* hero,
+* brand proposition,
+* problem/context,
+* core services or products,
+* differentiators,
+* methodology,
+* capabilities,
+* case studies,
+* results,
+* social proof,
+* technology,
+* process,
+* team,
+* credibility,
+* insights,
+* conversion sections,
+* forms,
+* footer.
+
+Only include sections that genuinely serve the user journey.
+
+For EVERY section define:
+
+* its objective,
+* primary message,
+* content hierarchy,
+* layout,
+* visual composition,
+* interaction,
+* animation,
+* background treatment,
+* relationship to surrounding sections,
+* and transition into the next section.
+
+Avoid repetitive stacks of identical cards.
+
+Create visual rhythm.
+
+Alternate between:
+
+* dense and spacious,
+* large and intimate,
+* static and interactive,
+* dark and light if appropriate,
+* text-driven and visual,
+* structured and expressive.
+
+The page should feel directed rather than assembled.
+
+---
+
+# 6. CREATE A STRONG LAYOUT SYSTEM
+
+Do not simply place everything inside centered 1200px containers.
+
+Use sophisticated editorial composition.
+
+Explore where appropriate:
+
+* asymmetrical grids,
+* deliberate oversized whitespace,
+* off-grid typography,
+* large-scale typography,
+* overlapping elements,
+* controlled cropping,
+* horizontal movement,
+* vertical narratives,
+* split compositions,
+* sticky sections,
+* progressive disclosure,
+* layered sections,
+* scrolling visual sequences.
+
+Maintain usability and responsive logic.
+
+Every unusual composition must have a reason.
+
+---
+
+# 7. TYPOGRAPHY MUST BE A DESIGN ELEMENT
+
+Typography must carry a significant part of the visual identity.
+
+Define:
+
+* primary display typeface,
+* body typeface,
+* secondary styles if needed,
+* type scale,
+* weights,
+* line heights,
+* tracking,
+* paragraph width,
+* heading behavior,
+* responsive typography.
+
+Use typography compositionally.
+
+Large type may become part of the visual environment.
+
+Avoid the typical AI website look where:
+
+* every headline is centered,
+* every heading has a gradient,
+* every paragraph is the same width,
+* every section follows the same typography hierarchy.
+
+Create intentional variation while maintaining consistency.
+
+---
+
+# 8. BUILD A PREMIUM MOTION SYSTEM
+
+Motion must feel integrated into the design rather than added afterward.
+
+Define a unified animation language.
+
+Include only meaningful effects such as:
+
+* page-load choreography,
+* hero entrance animation,
+* scroll-triggered reveals,
+* text reveals,
+* masking,
+* image transitions,
+* parallax,
+* depth shifts,
+* sticky sequences,
+* section transformations,
+* hover states,
+* navigation transitions,
+* button responses,
+* cursor interactions,
+* micro-interactions,
+* page transitions.
+
+Animations must feel:
+
+* smooth,
+* restrained,
+* responsive,
+* physically believable,
+* consistent.
+
+Use carefully designed easing rather than generic linear movement.
+
+Create hierarchy in motion:
+
+* micro animations: ~150–300 ms,
+* interface transitions: ~300–600 ms,
+* major storytelling transitions: ~600–1200 ms where appropriate.
+
+Do not animate everything.
+
+Static moments are essential for visual rhythm.
+
+Respect:
+
+`prefers-reduced-motion`.
+
+---
+
+# 9. DESIGN SCROLL AS STORYTELLING
+
+Scrolling should reveal the website progressively.
+
+Where relevant, use scroll position to create meaningful transitions:
+
+* systems assembling,
+* objects transforming,
+* layers separating,
+* content progressing,
+* capability increasing,
+* visual states changing,
+* data evolving,
+* camera depth shifting.
+
+Avoid pointless scroll-jacking.
+
+Native scrolling should remain natural and predictable.
+
+The user should feel that the page is responding to their movement, not fighting it.
+
+---
+
+# 10. CREATE SOPHISTICATED INTERACTIONS
+
+Design meaningful interaction states for:
+
+* navigation,
+* buttons,
+* links,
+* cards,
+* media,
+* case studies,
+* filters,
+* accordions,
+* forms,
+* CTAs,
+* galleries,
+* draggable content if applicable.
+
+Hover states should reveal information or reinforce the visual language.
+
+Avoid generic effects such as simply scaling every card to 1.05.
+
+Interaction should add character.
+
+---
+
+# 11. AVOID THE GENERIC “AI WEBSITE” LOOK
+
+Actively identify and remove anything that makes the website look templated or AI-generated.
+
+Avoid overusing:
+
+* gradient blobs,
+* glowing purple backgrounds,
+* generic glassmorphism,
+* endless rounded cards,
+* floating pills,
+* icon + title + paragraph feature grids,
+* excessive border-radius,
+* random neon glows,
+* decorative particles without meaning,
+* fake dashboards,
+* meaningless 3D spheres,
+* stock illustrations,
+* generic business photography,
+* centered-everything layouts,
+* repeated three-column sections,
+* identical section spacing,
+* excessive badges,
+* excessive gradients,
+* unnecessary animated backgrounds.
+
+If using any of these techniques, they must have a clear conceptual reason.
+
+Always ask:
+
+**Could this design belong to another company with only the logo changed?**
+
+If yes, redesign it.
+
+---
+
+# 12. MAKE IT FEEL AGENCY-BUILT
+
+Continuously audit the site for anything that feels:
+
+* cheap,
+* generic,
+* inconsistent,
+* unfinished,
+* auto-generated,
+* overly symmetrical,
+* visually flat,
+* overdecorated,
+* or technically amateur.
+
+Pay special attention to:
+
+* typography,
+* spacing,
+* content width,
+* line breaks,
+* visual hierarchy,
+* image crops,
+* alignment,
+* borders,
+* shadows,
+* button proportions,
+* hover details,
+* animation timing,
+* transitions,
+* empty states,
+* form fields,
+* mobile layout,
+* navigation.
+
+Add small but deliberate details that make the experience feel authored.
+
+Every pixel does not need decoration.
+
+Every pixel needs intention.
+
+---
+
+# 13. DESIGN MOBILE AS A SEPARATE EXPERIENCE
+
+Do not merely shrink the desktop design.
+
+Create a proper mobile interpretation.
+
+Reconsider:
+
+* hierarchy,
+* spacing,
+* typography,
+* image crops,
+* interactions,
+* navigation,
+* sticky elements,
+* animation,
+* content order,
+* touch areas,
+* horizontal layouts,
+* immersive visuals.
+
+Maintain the same creative concept while adapting it intelligently to small screens.
+
+Avoid excessive scroll length created by stacking every desktop element vertically.
+
+---
+
+# 14. CONVERSION MUST REMAIN CLEAR
+
+The site can be visually ambitious, but users must always understand:
+
+* who the company is,
+* what it offers,
+* why it is different,
+* why they should trust it,
+* what they should do next.
+
+Define a clear CTA hierarchy.
+
+Primary CTA should be visually recognizable throughout the site without becoming repetitive.
+
+Conversion sections should feel like part of the storytelling rather than generic marketing blocks.
+
+---
+
+# 15. IMPLEMENT WITH A PROFESSIONAL FRONT-END ARCHITECTURE
+
+Use a modern, production-ready architecture appropriate for the project.
+
+Prefer reusable components without allowing the component system to dictate generic design.
+
+Before implementing anything:
+
+1. inspect the existing project,
+2. understand its structure,
+3. identify working functionality,
+4. preserve existing features unless explicitly replacing them.
+
+When modifying an existing website:
+
+* never blindly rewrite the application,
+* avoid breaking working functionality,
+* inspect dependencies first,
+* reuse existing components when sensible,
+* refactor only where beneficial.
+
+Build the site incrementally.
+
+After every significant change:
+
+1. inspect the result,
+2. test it,
+3. fix visual or functional problems,
+4. verify responsiveness,
+5. ensure previous functionality still works.
+
+---
+
+# 16. PERFORMANCE IS PART OF THE DESIGN
+
+The website must feel extremely smooth.
+
+Optimize:
+
+* image formats,
+* image loading,
+* fonts,
+* animation workload,
+* JavaScript,
+* DOM complexity,
+* GPU usage,
+* 3D rendering,
+* lazy loading,
+* bundle size,
+* responsive assets.
+
+Prefer transforms and opacity for animation.
+
+Avoid unnecessary layout recalculations.
+
+If using WebGL / Three.js / shaders:
+
+* use them because they strengthen the concept,
+* keep geometry efficient,
+* limit draw calls,
+* optimize textures,
+* provide fallbacks,
+* ensure acceptable mobile performance.
+
+Visual ambition must never make the website feel sluggish.
+
+---
+
+# 17. ACCESSIBILITY
+
+Maintain strong accessibility without compromising the visual concept.
+
+Ensure:
+
+* semantic HTML,
+* keyboard navigation,
+* logical tab order,
+* visible focus states,
+* sufficient contrast,
+* accessible forms,
+* proper labels,
+* meaningful alt text,
+* ARIA only where necessary,
+* reduced-motion support.
+
+Interactive visual effects must never block basic navigation.
+
+---
+
+# 18. SEO AND TECHNICAL QUALITY
+
+Implement:
+
+* correct page titles,
+* meta descriptions,
+* canonical structure,
+* OpenGraph data,
+* social sharing metadata,
+* semantic headings,
+* structured content,
+* crawlable text,
+* sitemap where appropriate,
+* robots configuration,
+* structured data where useful.
+
+Ensure that visual creativity does not hide important content from search engines.
+
+---
+
+# 19. FINAL CREATIVE AUDIT
+
+Before considering the site complete, perform a creative-director audit.
+
+Ask:
+
+* Is there one clear visual idea?
+* Is the hero unforgettable?
+* Does the website look like this specific brand?
+* Is the typography strong enough?
+* Is the layout too predictable?
+* Are there too many cards?
+* Are sections visually repetitive?
+* Is motion meaningful?
+* Are transitions smooth?
+* Does anything feel like a template?
+* Does anything feel AI-generated?
+* Is there a strong visual rhythm?
+* Does mobile feel intentionally designed?
+* Are CTAs clear?
+* Is the brand proposition immediately understandable?
+
+If any answer is weak, improve the site.
+
+---
+
+# 20. FINAL TECHNICAL QA
+
+Perform a full QA pass covering:
+
+### Visual
+
+* spacing,
+* alignment,
+* typography,
+* consistency,
+* imagery,
+* responsive behavior.
+
+### Interaction
+
+* navigation,
+* links,
+* buttons,
+* hover states,
+* forms,
+* scroll behavior,
+* touch interactions.
+
+### Motion
+
+* FPS,
+* timing,
+* easing,
+* scroll synchronization,
+* reduced motion.
+
+### Responsive
+
+Test at minimum:
+
+* 320 px,
+* 375 px,
+* 430 px,
+* 768 px,
+* 1024 px,
+* 1280 px,
+* 1440 px,
+* 1920 px.
+
+### Browser
+
+Check:
+
+* Chrome,
+* Safari,
+* Firefox,
+* Edge.
+
+### Performance
+
+Review:
+
+* loading speed,
+* Largest Contentful Paint,
+* Cumulative Layout Shift,
+* Interaction to Next Paint,
+* image optimization,
+* script size.
+
+### Accessibility
+
+Check:
+
+* keyboard navigation,
+* focus states,
+* contrast,
+* semantic structure,
+* forms.
+
+### SEO
+
+Check:
+
+* metadata,
+* heading hierarchy,
+* indexability,
+* sharing metadata.
+
+Rank all remaining problems:
+
+* P0 — launch blocker
+* P1 — major
+* P2 — polish
+* P3 — optional enhancement
+
+Fix all P0 and P1 issues before considering the site complete.
+
+---
+
+# 21. WORKING METHOD
+
+Do not attempt to generate the entire project blindly in one pass.
+
+Work like a senior design and engineering team.
+
+Use this sequence:
+
+### Phase 1 — Discovery
+
+Understand brand, audience, content and objectives.
+
+### Phase 2 — Creative Concept
+
+Define one distinctive creative direction and signature visual idea.
+
+### Phase 3 — UX Architecture
+
+Define navigation, page structure and conversion flow.
+
+### Phase 4 — Visual System
+
+Typography, grid, colors, imagery, graphic language.
+
+### Phase 5 — Hero
+
+Create and perfect the signature opening experience.
+
+### Phase 6 — Core Sections
+
+Build the storytelling system and visual rhythm.
+
+### Phase 7 — Interaction & Motion
+
+Add the unified interaction and animation language.
+
+### Phase 8 — Responsive Design
+
+Design and optimize mobile and tablet experiences.
+
+### Phase 9 — Technical Optimization
+
+Performance, accessibility and SEO.
+
+### Phase 10 — Creative Polish
+
+Remove anything generic or unfinished.
+
+### Phase 11 — Final QA
+
+Test everything and fix remaining issues.
+
+At every phase, inspect the work already completed before making changes.
+
+Never destroy working functionality unnecessarily.
+
+---
+
+# 22. QUALITY BAR
+
+The target quality is NOT:
+
+“A very good AI-generated website.”
+
+The target is:
+
+**A website that could credibly be featured by Awwwards, CSS Design Awards or a leading digital design publication while still functioning as a commercially effective business website.**
+
+Do not imitate an existing award-winning website.
+
+Learn from the level of:
+
+* art direction,
+* restraint,
+* craftsmanship,
+* typography,
+* storytelling,
+* motion,
+* and detail.
+
+The result must remain original to **[BRAND]**.
+
+---
+
+# PROJECT INPUT
+
+Use the following information as the source of truth:
+
+**Brand:**
+[BRAND]
+
+**Website / project:**
+[WEBSITE]
+
+**Primary objective:**
+[PRIMARY BUSINESS GOAL]
+
+**Target audiences:**
+[TARGET AUDIENCES]
+
+**Core proposition:**
+[CORE VALUE PROPOSITION]
+
+**Products / services:**
+[PRODUCTS / SERVICES]
+
+**Key differentiators:**
+[DIFFERENTIATORS]
+
+**Desired brand perception:**
+[DESIRED PERCEPTION]
+
+**Preferred visual direction, if any:**
+[VISUAL DIRECTION]
+
+**Existing brand guidelines:**
+[BRAND GUIDELINES]
+
+**Content / copy:**
+[CONTENT]
+
+**Reference websites — inspiration only, never copy:**
+[REFERENCES]
+
+**Existing website / codebase:**
+[URL / REPOSITORY / PROJECT INFORMATION]
+
+**Technical constraints:**
+[TECHNICAL CONSTRAINTS]
+
+**Required functionality:**
+[FUNCTIONS]
+
+**Primary CTA:**
+[PRIMARY CTA]
+
+---
+
+# FINAL INSTRUCTION
+
+Do not settle for the first acceptable design.
+
+Whenever a section looks conventional, ask whether it can be made more specific to the brand.
+
+Whenever an effect exists only because it looks impressive, remove it.
+
+Whenever functionality and visual ambition conflict, find an elegant solution rather than sacrificing either.
+
+Create a website with:
+
+**ONE IDEA.
+ONE SYSTEM.
+ONE VISUAL LANGUAGE.
+EXCEPTIONAL EXECUTION.**
+
+The final experience should feel unmistakably designed for **[BRAND]** and impossible to confuse with a generic template.
+
+Ennek szerintem az egyik legfontosabb része az, hogy nem azt mondja a Claude-nak vagy más vibe coding rendszernek, hogy „legyen Awwwards-szerű”, hanem konkrétan előírja a **ONE IDEA → ONE SYSTEM → ONE VISUAL LANGUAGE** gondolkodást. Ettől sokkal kisebb az esélye annak, hogy kapsz egy szép, de teljesen csereszabatos „sötét háttér + lila glow + 12 rounded card” oldalt.
+
+Én még egy dolgot tennék hozzá használatkor: a `[PROJECT INPUT]` részt minden konkrét projekthez töltsd ki rendesen, és mellé adj 3–6 olyan referenciaoldalt, ahol **külön leírod, hogy melyikből pontosan mi tetszik**. Így nem stílusmásolást kérsz, hanem kreatív alapanyagokat adsz.

@@ -1,0 +1,16 @@
+{
+  "name": "@radovin/adapters",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "dependencies": {
+    "@radovin/contracts": "*",
+    "@radovin/crawler-core": "*",
+    "@radovin/domain": "*",
+    "@radovin/extraction": "*",
+    "@radovin/observability": "*"
+  }
+}

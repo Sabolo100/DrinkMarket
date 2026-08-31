@@ -1,0 +1,24 @@
+{
+  "name": "@radovin/api",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": { "start": "node dist/main.js" },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@radovin/adapters": "*",
+    "@radovin/contracts": "*",
+    "@radovin/crawler-core": "*",
+    "@radovin/db": "*",
+    "@radovin/domain": "*",
+    "@radovin/extraction": "*",
+    "@radovin/observability": "*",
+    "bullmq": "^5.34.10",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.2",
+    "zod": "^3.24.1"
+  }
+}
