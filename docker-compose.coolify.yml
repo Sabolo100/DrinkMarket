@@ -68,6 +68,10 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.web
+      args:
+        # A Next.js rewrites() build időben rögzül, ezért ez build arg és nem
+        # csak futásidejű változó. Lásd deploy/Dockerfile.web.
+        API_INTERNAL_URL: http://api:4000
     restart: unless-stopped
     environment:
       SERVICE_NAME: web

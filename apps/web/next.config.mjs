@@ -1,4 +1,8 @@
 /** @type {import('next').NextConfig} */
+// FIGYELEM: a rewrites() a `next build` alatt ertekelodik ki, es a celcim a
+// .next/routes-manifest.json-ba egetodik. Az API_INTERNAL_URL-t ezert BUILD
+// IDOBEN kell megadni (lasd deploy/Dockerfile.web ARG-jat) - futasidoben mar
+// nincs hatasa a proxyra.
 const apiInternal = process.env.API_INTERNAL_URL || 'http://127.0.0.1:4000';
 
 const nextConfig = {

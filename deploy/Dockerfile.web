@@ -6,6 +6,12 @@ WORKDIR /app
 ENV NODE_ENV=production TZ=Europe/Budapest NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS build
+# A Next.js a rewrites() celcimet BUILD IDOBEN irja a routes-manifest.json-ba,
+# ezert az API_INTERNAL_URL-nek mar itt rendelkezesre kell allnia. Ha csak
+# futasidoben adjuk at, a proxy a beegetett alapertelmezesre mutat (127.0.0.1),
+# es minden /api/* keres 500-zal ter vissza a web kontenerbol.
+ARG API_INTERNAL_URL=http://api:4000
+ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 COPY package.json package-lock.json ./
 COPY apps/web/ apps/web/
 # A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
