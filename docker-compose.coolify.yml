@@ -110,35 +110,41 @@ services:
     volumes:
       - evidence:/data/evidence
 
+  # ── KIKAPCSOLVA ─────────────────────────────────────────────────────────────
   # A böngészős worker opcionális: csak akkor kell, ha valamelyik forrásnál
-  # nincs stabil HTTP/JSON út (spec 38/9). Nagy image, külön erőforráskerettel.
-  worker-browser:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.browser
-    restart: unless-stopped
-    environment:
-      SERVICE_NAME: worker-browser
-      NODE_ENV: production
-      TZ: ${TZ:-Europe/Budapest}
-      DATABASE_URL: ${DATABASE_URL}
-      DATABASE_SSL: ${DATABASE_SSL:-false}
-      REDIS_URL: ${REDIS_URL}
-      WORKER_MODE: browser
-      WORKER_BROWSER_CONCURRENCY: ${WORKER_BROWSER_CONCURRENCY:-1}
-      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
-      EVIDENCE_FS_PATH: /data/evidence
-      LOG_FORMAT: json
-    depends_on:
-      api:
-        condition: service_healthy
-    volumes:
-      - evidence:/data/evidence
-    shm_size: 512mb
-    deploy:
-      resources:
-        limits:
-          memory: 1500M
+  # nincs stabil HTTP/JSON út (spec 38/9). Nagy image (Playwright + Chromium),
+  # ezért az első deployból kihagyjuk. Ha kell, vedd ki a kommentet az alábbi
+  # blokkból, és a Beállítások felületen kapcsold be a `browser_crawler`
+  # feature flaget. Amíg ez a szolgáltatás nem fut, a flaget tartsd kikapcsolva,
+  # és ne használd a `browser-jsonld` adaptert - a jobok feldolgozatlanul
+  # állnának a sorban.
+#   worker-browser:
+#     build:
+#       context: .
+#       dockerfile: deploy/Dockerfile.browser
+#     restart: unless-stopped
+#     environment:
+#       SERVICE_NAME: worker-browser
+#       NODE_ENV: production
+#       TZ: ${TZ:-Europe/Budapest}
+#       DATABASE_URL: ${DATABASE_URL}
+#       DATABASE_SSL: ${DATABASE_SSL:-false}
+#       REDIS_URL: ${REDIS_URL}
+#       WORKER_MODE: browser
+#       WORKER_BROWSER_CONCURRENCY: ${WORKER_BROWSER_CONCURRENCY:-1}
+#       CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
+#       EVIDENCE_FS_PATH: /data/evidence
+#       LOG_FORMAT: json
+#     depends_on:
+#       api:
+#         condition: service_healthy
+#     volumes:
+#       - evidence:/data/evidence
+#     shm_size: 512mb
+#     deploy:
+#       resources:
+#         limits:
+#           memory: 1500M
 
   scheduler:
     build:
