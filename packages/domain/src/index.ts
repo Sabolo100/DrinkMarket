@@ -4,6 +4,7 @@ export * from './normalization/vintage.js';
 export * from './identity/fingerprint.js';
 export * from './identity/profile.js';
 export * from './identity/extract.js';
+export * from './identity/wine-parser.js';
 export * from './matching/comparators.js';
 export * from './matching/engine.js';
 export * from './candidates/query-plan.js';
