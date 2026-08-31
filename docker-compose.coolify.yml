@@ -75,6 +75,10 @@ services:
       TZ: ${TZ:-Europe/Budapest}
       API_INTERNAL_URL: http://api:4000
       PORT: 3000
+      # A publikus /bot oldal ezekből az értékekből dolgozik, hogy ne tudjon
+      # elcsúszni attól, amit a crawler ténylegesen küld.
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
+      CRAWLER_CONTACT_EMAIL: ${CRAWLER_CONTACT_EMAIL:-}
     depends_on:
       api:
         condition: service_healthy
