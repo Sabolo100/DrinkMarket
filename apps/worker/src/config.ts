@@ -24,7 +24,7 @@ const schema = z.object({
   WORKER_MODE: z.enum(['http', 'browser', 'all']).default('http'),
   WORKER_HTTP_CONCURRENCY: intish(8),
   WORKER_BROWSER_CONCURRENCY: intish(1),
-  CRAWLER_USER_AGENT: z.string().default('RadovinPriceBot/2.1 (+https://radovin.hu/bot)'),
+  CRAWLER_USER_AGENT: z.string().default('RadovinPriceBot/2.1 (+https://drinkdeal.hu/bot)'),
   CRAWLER_CONTACT_EMAIL: z.string().optional(),
   EVIDENCE_DRIVER: z.enum(['fs', 's3']).default('fs'),
   EVIDENCE_FS_PATH: z.string().default('./storage/evidence'),

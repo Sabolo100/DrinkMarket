@@ -44,7 +44,7 @@ const schema = z.object({
   BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
 
-  CRAWLER_USER_AGENT: z.string().default('RadovinPriceBot/2.1 (+https://radovin.hu/bot)'),
+  CRAWLER_USER_AGENT: z.string().default('RadovinPriceBot/2.1 (+https://drinkdeal.hu/bot)'),
   CRAWLER_CONTACT_EMAIL: z.string().optional(),
 
   EVIDENCE_DRIVER: z.enum(['fs', 's3']).default('fs'),
