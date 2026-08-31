@@ -26,8 +26,8 @@ export const metadata: Metadata = {
 };
 
 const UA =
-  process.env.CRAWLER_USER_AGENT ?? 'RadovinPriceBot/2.1 (+https://drinkdeal.hu/bot)';
-const CONTACT = process.env.CRAWLER_CONTACT_EMAIL ?? 'tech@drinkdeal.hu';
+  process.env.CRAWLER_USER_AGENT || 'RadovinPriceBot/2.1 (+https://drinkdeal.hu/bot)';
+const CONTACT = process.env.CRAWLER_CONTACT_EMAIL || 'tech@drinkdeal.hu';
 const TOKEN = UA.split('/')[0] || 'RadovinPriceBot';
 
 export default function BotPage() {
