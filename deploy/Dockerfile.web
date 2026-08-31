@@ -8,7 +8,10 @@ ENV NODE_ENV=production TZ=Europe/Budapest NEXT_TELEMETRY_DISABLED=1
 FROM base AS build
 COPY package.json package-lock.json ./
 COPY apps/web/ apps/web/
-RUN npm install --workspace @radovin/web --include-workspace-root --ignore-scripts \
+# A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
+# devDependencies-t. A `next build` viszont a typescriptet és a @types/*
+# csomagokat is igényli (a next.config ignoreBuildErrors: false).
+RUN npm install --include=dev --workspace @radovin/web --include-workspace-root --ignore-scripts \
  && npm run build --workspace @radovin/web
 
 FROM base AS runtime

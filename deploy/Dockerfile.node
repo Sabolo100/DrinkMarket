@@ -21,7 +21,15 @@ COPY apps/api/package.json                apps/api/
 COPY apps/worker/package.json             apps/worker/
 COPY apps/scheduler/package.json          apps/scheduler/
 COPY apps/web/package.json                apps/web/
-RUN npm ci --omit=dev --ignore-scripts --workspaces --include-workspace-root || npm install --omit=dev --ignore-scripts
+# Csak a három node-processz workspace-e kell. A `--workspaces` a webet is
+# telepítené, amivel a Next.js és a React (~470 MB) bekerülne az api, a worker
+# és a scheduler image-ébe is, holott egyik sem használja őket.
+# Az apps/web/package.json-t viszont másolni kell, hogy a lockfile egyezzen.
+RUN npm ci --omit=dev --ignore-scripts --include-workspace-root \
+      --workspace @radovin/api \
+      --workspace @radovin/worker \
+      --workspace @radovin/scheduler \
+ || npm install --omit=dev --ignore-scripts
 
 # ── Fordítás ─────────────────────────────────────────────────────────────────
 FROM base AS build
@@ -30,7 +38,10 @@ COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY apps/worker/ apps/worker/
 COPY apps/scheduler/ apps/scheduler/
-RUN npm install --ignore-scripts && npm run build
+# A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
+# devDependencies-t — köztük a typescriptet. Fordítani viszont abból kell.
+# A futtató image továbbra sem kapja meg: a deps stage `--omit=dev`-vel telepít.
+RUN npm install --include=dev --ignore-scripts && npm run build
 
 # ── Futtatás ─────────────────────────────────────────────────────────────────
 FROM base AS runtime

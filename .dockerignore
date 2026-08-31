@@ -1,0 +1,25 @@
+# A build context minimalizalasa. A Coolify friss git klonbol dolgozik, de
+# helyi buildnel enelkul a teljes node_modules atmenne a daemonnak, es a
+# COPY packages/ beagyazott node_modules-t is bemasolna az image-be.
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+out
+coverage
+*.tsbuildinfo
+**/*.tsbuildinfo
+storage
+tmp
+playwright-report
+.git
+.env
+.env.*
+!.env.example
+Design.txt
+docs
+tests
+README.md
+RADOVIN_PRICE_INTELLIGENCE_SYSTEM_SPEC_V2_HU.md

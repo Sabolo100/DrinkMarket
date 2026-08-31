@@ -10,7 +10,9 @@ FROM base AS build
 COPY package.json package-lock.json tsconfig*.json ./
 COPY packages/ packages/
 COPY apps/worker/ apps/worker/
-RUN npm install --ignore-scripts && npm run build
+# A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
+# devDependencies-t — köztük a typescriptet. Fordítani viszont abból kell.
+RUN npm install --include=dev --ignore-scripts && npm run build
 
 FROM base AS runtime
 COPY --from=build /app/node_modules ./node_modules
