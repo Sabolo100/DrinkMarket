@@ -32,7 +32,8 @@
     "test:watch": "vitest",
     "golden": "tsx --tsconfig tsconfig.dev.json tests/golden/evaluate.ts",
     "seed:demo": "tsx --tsconfig tsconfig.dev.json tests/e2e/seed-demo.ts",
-    "test:e2e": "vitest run tests/e2e"
+    "test:e2e": "vitest run tests/e2e",
+    "wine:report": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-report.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
