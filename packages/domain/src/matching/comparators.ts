@@ -78,11 +78,21 @@ const FIELD_SPECS: FieldSpec[] = [
   { field: 'fruit', weightKey: 'expression', hardOnMismatch: true, reasonCode: REASON_CODES.FRUIT_MISMATCH },
   { field: 'abvPercent', weightKey: 'abv', hardOnMismatch: true, reasonCode: REASON_CODES.ABV_MISMATCH },
   { field: 'gtin', weightKey: 'gtin', hardOnMismatch: true, reasonCode: REASON_CODES.GTIN_MISMATCH },
+  // A bortipus a MODELLEZETT azonossaghordozo; a colour ennek szoveges arnyeka,
+  // ezert az marad puha jel. (Ha a colour is hard gate lenne, egy rose
+  // Kekfrankos, ahol az egyik bolt kiirja a tipust, a masik nem, hamis
+  // ellentmondast kapna a fajta alapertelmezett szinebol.)
+  { field: 'wineStyleId', weightKey: 'expression', hardOnMismatch: true, reasonCode: 'WINE_STYLE_MISMATCH' },
+  { field: 'vineyardId', weightKey: 'expression', hardOnMismatch: true, reasonCode: 'VINEYARD_MISMATCH' },
   { field: 'colour', weightKey: 'region', hardOnMismatch: false, reasonCode: 'COLOUR_MISMATCH' },
   { field: 'region', weightKey: 'region', hardOnMismatch: false, reasonCode: 'REGION_MISMATCH' },
   { field: 'countryCode', weightKey: 'region', hardOnMismatch: false, reasonCode: 'COUNTRY_MISMATCH' },
   { field: 'sweetness', weightKey: 'region', hardOnMismatch: false, reasonCode: 'SWEETNESS_MISMATCH' },
-  { field: 'grapeVarieties', weightKey: 'region', hardOnMismatch: false, reasonCode: 'GRAPE_MISMATCH' },
+  // A fajtaelteres KIZAR. A komparator csak TELJESEN diszjunkt halmazoknal ad
+  // ellentmondast (Jaccard = 0); reszleges atfedesnel tartozkodik. Ez akkor
+  // biztonsagos, ha a fajtak KANONIKUS nevre vannak feloldva - kulonben az
+  // "Olaszrizling" es a "Welschriesling" hamis kizarast adna.
+  { field: 'grapeVarieties', weightKey: 'region', hardOnMismatch: true, reasonCode: 'GRAPE_MISMATCH' },
   { field: 'flavour', weightKey: 'expression', hardOnMismatch: true, reasonCode: 'FLAVOUR_MISMATCH' },
   { field: 'aging', weightKey: 'vintage', hardOnMismatch: true, reasonCode: 'AGING_MISMATCH' },
 ];
@@ -278,6 +288,14 @@ function compareSingleField(
     case 'puttony': {
       if (!known(lv) || !known(rv)) return { state: 'unknown', score: null };
       return Number(lv) === Number(rv)
+        ? { state: 'match', score: 1 }
+        : { state: 'contradiction', score: 0, reason: `${field}: ${String(lv)} vs ${String(rv)}` };
+    }
+    case 'wineStyleId':
+    case 'vineyardId': {
+      // Azonositok: nincs fuzzy, nincs reszleges egyezes.
+      if (!known(lv) || !known(rv)) return { state: 'unknown', score: null };
+      return String(lv) === String(rv)
         ? { state: 'match', score: 1 }
         : { state: 'contradiction', score: 0, reason: `${field}: ${String(lv)} vs ${String(rv)}` };
     }

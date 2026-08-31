@@ -52,6 +52,41 @@ export function identityHash(input: FingerprintInput): string {
 }
 
 /**
+ * BOLTFUGGETLEN identitaskulcs - a klaszterezes alapja.
+ *
+ * Az identityHash() a platformProductId / platformVariantId mezoket is
+ * beleszamolja, mert az a "ugyanaz a listing maradt-e" kerdesre valaszol.
+ * Azok viszont boltspecifikusak, ezert boltok kozott hasznalhatatlanok.
+ *
+ * Ez a kulcs pontosan azt a mezokeszletet fedi, amit a
+ * canonical_variants_identity_uq egyedi index - igy egy kulcs = egy kanonikus
+ * valtozat, es a generalt katalogus szerkezetileg nem tud utkozni onmagaval.
+ *
+ * FONTOS: a fajta, a bortipus es a dulo AZONOSITOKKAL szerepel, nem
+ * szoveggel. Enelkul az "Olaszrizling" es a "Welschriesling" kulon kulcsot
+ * kapna, holott ugyanaz a fajta.
+ */
+export function canonicalIdentityKey(identity: IdentityFields): string {
+  const i = identity;
+  const parts = [
+    'ck1',
+    norm(i.producerId ?? i.producer ?? i.brandId ?? i.brand),
+    norm(i.grapeSignature),
+    norm(i.wineStyleId ?? i.colour),
+    norm(i.vintageValue),
+    norm(i.vintageStatus),
+    norm(i.ageStatementYears),
+    norm(i.volumeMl),
+    norm(i.packCount),
+    norm(i.packagingType),
+    norm(i.vineyardId),
+    norm(i.edition),
+    norm(i.puttony),
+  ];
+  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 40);
+}
+
+/**
  * Nyers forras-fingerprint: a lathato terméknevbol es a fo strukturalt
  * mezokbol. Ez erzekenyebb, mint az identityHash - kis tipografiai valtozas is
  * elmozdithatja, ezert a drift-kezeles kulon vizsgalja (spec 17.3).
@@ -94,9 +129,11 @@ export interface DriftResult {
 const BLOCKING_FIELDS = new Set([
   'vintageValue', 'vintageStatus', 'volumeMl', 'packCount', 'packagingType',
   'edition', 'ageStatementYears', 'caskFinish', 'dosageStyle', 'puttony', 'gtin',
+  // A bor azonossaghordozoi: ha ezek megvaltoznak, az URL mogott mas bor van.
+  'grapeSignature', 'wineStyleId', 'vineyardId',
 ]);
 
-const IDENTITY_CORE = new Set(['producer', 'brand', 'expression']);
+const IDENTITY_CORE = new Set(['producer', 'brand', 'expression', 'grapeSignature']);
 
 export function detectDrift(
   before: IdentityFields,
@@ -108,6 +145,7 @@ export function detectDrift(
     'producer', 'brand', 'expression', 'vintageValue', 'vintageStatus',
     'ageStatementYears', 'volumeMl', 'packCount', 'packagingType', 'edition',
     'caskFinish', 'dosageStyle', 'puttony', 'gtin', 'abvPercent', 'categoryKey',
+    'grapeSignature', 'wineStyleId', 'vineyardId',
   ];
   for (const f of fields) {
     const a = norm(before[f]);

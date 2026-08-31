@@ -39,6 +39,9 @@ const FIELD_ALIASES: Record<string, string> = {
   cask_finish: 'caskFinish',
   abv_percent: 'abvPercent',
   grape_varieties: 'grapeVarieties',
+  // A szotarra feloldott azonositok. A DB-profil a beszelo kulcsot hasznalja,
+  // az osszehasonlitas viszont az azonositon dol el.
+  wine_style: 'wineStyleId',
   country_code: 'countryCode',
   batch_code: 'batchCode',
   colour: 'colour',
@@ -55,7 +58,7 @@ const FIELD_ALIASES: Record<string, string> = {
   aging: 'aging',
   subcategory: 'subcategory',
   appellation: 'appellation',
-  vineyard: 'vineyard',
+  vineyard: 'vineyardId',
   organic: 'organic',
 };
 

@@ -138,6 +138,19 @@ export interface IdentityFields {
   appellation: string | null;
   vineyard: string | null;
   organic: boolean | null;
+
+  // ── Bor-szotarra feloldott azonossaghordozok (0010 migracio) ────────────
+  // A szoveges parjaik (grapeVarieties, colour, region, vineyard) megmaradnak
+  // megjelenitesre; az AZONOSSAG viszont ezeken az azonositokon dol el, mert
+  // csak igy oldodik fel az "Olaszrizling" = "Welschriesling" szinonimapar.
+  /** Feloldott szolofajta-azonositok. Ures tomb = nem ismert. */
+  grapeVarietyIds: string[];
+  /** A rendezett fajtahalmaz stabil lenyomata (lasd grapeSignature()). */
+  grapeSignature: string | null;
+  wineStyleId: string | null;
+  wineStyle: string | null;
+  vineyardId: string | null;
+  wineRegionId: string | null;
 }
 
 export function emptyIdentityFields(): IdentityFields {
@@ -147,6 +160,8 @@ export function emptyIdentityFields(): IdentityFields {
     volumeMl: null, packCount: 1, packagingType: 'unknown', containerType: null,
     edition: null, caskFinish: null, dosageStyle: null, sweetness: null, puttony: null,
     abvPercent: null, colour: null, region: null, countryCode: null, grapeVarieties: [],
+    grapeVarietyIds: [], grapeSignature: null, wineStyleId: null, wineStyle: null,
+    vineyardId: null, wineRegionId: null,
     gtin: null, sku: null, flavour: null, fruit: null, aging: null, subcategory: null,
     appellation: null, vineyard: null, organic: null,
   };

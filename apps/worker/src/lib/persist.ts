@@ -56,6 +56,14 @@ interface ExistingListing {
   puttony: number | null;
   abv_percent: number | null;
   gtin: string | null;
+  colour: string | null;
+  region: string | null;
+  wine_style_id: string | null;
+  vineyard_id: string | null;
+  wine_region_id: string | null;
+  grape_signature: string | null;
+  grape_names: string[] | null;
+  grape_ids: string[] | null;
   latest_price: number | null;
   latest_availability: string | null;
 }
@@ -79,9 +87,14 @@ function toIdentityFields(row: ExistingListing, categoryKey: string | null): Ide
     sweetness: null,
     puttony: row.puttony,
     abvPercent: row.abv_percent,
-    colour: null, region: null, countryCode: null, grapeVarieties: [],
+    colour: row.colour, region: row.region, countryCode: null,
+    grapeVarieties: row.grape_names ?? [],
     gtin: row.gtin, sku: null, flavour: null, fruit: null, aging: null,
     subcategory: null, appellation: null, vineyard: null, organic: null,
+    grapeVarietyIds: row.grape_ids ?? [],
+    grapeSignature: row.grape_signature,
+    wineStyleId: row.wine_style_id, wineStyle: null,
+    vineyardId: row.vineyard_id, wineRegionId: row.wine_region_id,
   };
 }
 
@@ -107,10 +120,20 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
               sl.expression, sl.vintage_value, sl.vintage_status, sl.age_statement_years,
               sl.volume_ml, sl.pack_count, sl.packaging_type, sl.edition, sl.cask_finish,
               sl.dosage_style, sl.puttony, sl.abv_percent, sl.gtin,
+              sl.colour, sl.region, sl.wine_style_id, sl.vineyard_id,
+              sl.wine_region_id, sl.grape_signature,
+              g.names AS grape_names, g.ids AS grape_ids,
               o.selected_comparable_price_huf AS latest_price,
               o.availability_status AS latest_availability
          FROM source_listings sl
          LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id
+         LEFT JOIN LATERAL (
+           SELECT array_agg(gv.canonical_name ORDER BY gv.canonical_name) AS names,
+                  array_agg(gv.id::text        ORDER BY gv.canonical_name) AS ids
+             FROM source_listing_grapes slg
+             JOIN grape_varieties gv ON gv.id = slg.grape_variety_id
+            WHERE slg.source_listing_id = sl.id
+         ) g ON true
         WHERE sl.shop_id = $1
           AND ( ($2::text IS NOT NULL AND sl.platform_product_id = $2
                  AND coalesce(sl.platform_variant_id,'') = coalesce($3::text,''))
