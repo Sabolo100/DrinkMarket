@@ -88,11 +88,18 @@ const FIELD_SPECS: FieldSpec[] = [
   { field: 'region', weightKey: 'region', hardOnMismatch: false, reasonCode: 'REGION_MISMATCH' },
   { field: 'countryCode', weightKey: 'region', hardOnMismatch: false, reasonCode: 'COUNTRY_MISMATCH' },
   { field: 'sweetness', weightKey: 'region', hardOnMismatch: false, reasonCode: 'SWEETNESS_MISMATCH' },
-  // A fajtaelteres KIZAR. A komparator csak TELJESEN diszjunkt halmazoknal ad
-  // ellentmondast (Jaccard = 0); reszleges atfedesnel tartozkodik. Ez akkor
-  // biztonsagos, ha a fajtak KANONIKUS nevre vannak feloldva - kulonben az
-  // "Olaszrizling" es a "Welschriesling" hamis kizarast adna.
-  { field: 'grapeVarieties', weightKey: 'region', hardOnMismatch: true, reasonCode: 'GRAPE_MISMATCH' },
+  // A fajtaelteres KIZAR - de kizarolag a SZOTARRA FELOLDOTT azonositokon.
+  //
+  // A nyers `grapeVarieties` szoveg a bolt specifikacios tablajabol jon,
+  // feloldatlanul: ott az "Olaszrizling" es a "Welschriesling" ket kulon
+  // sztring, es hard gate-kent hamis kizarast adna. A feloldott
+  // `grapeVarietyIds` viszont mindkettore ugyanazt az azonositot adja.
+  //
+  // A komparator mindket mezore csak TELJESEN diszjunkt halmazoknal ad
+  // ellentmondast (Jaccard = 0); reszleges atfedesnel - pl. amikor az egyik
+  // bolt harom fajtat sorol fel, a masik kettot - tartozkodik.
+  { field: 'grapeVarietyIds', weightKey: 'region', hardOnMismatch: true, reasonCode: 'GRAPE_MISMATCH' },
+  { field: 'grapeVarieties', weightKey: 'region', hardOnMismatch: false, reasonCode: 'GRAPE_TEXT_MISMATCH' },
   { field: 'flavour', weightKey: 'expression', hardOnMismatch: true, reasonCode: 'FLAVOUR_MISMATCH' },
   { field: 'aging', weightKey: 'vintage', hardOnMismatch: true, reasonCode: 'AGING_MISMATCH' },
 ];
@@ -299,6 +306,7 @@ function compareSingleField(
         ? { state: 'match', score: 1 }
         : { state: 'contradiction', score: 0, reason: `${field}: ${String(lv)} vs ${String(rv)}` };
     }
+    case 'grapeVarietyIds':
     case 'grapeVarieties': {
       const a = (Array.isArray(lv) ? lv : []).map((x) => searchNorm(String(x))).filter(Boolean).sort();
       const b = (Array.isArray(rv) ? rv : []).map((x) => searchNorm(String(x))).filter(Boolean).sort();

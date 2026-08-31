@@ -110,7 +110,20 @@ describe('a fajta elterese kizar', () => {
       }),
     );
     expect(r.rejected).toBe(true);
-    expect(r.hardContradictions.map((h) => h.field)).toContain('grapeVarieties');
+    expect(r.hardContradictions.map((h) => h.field)).toContain('grapeVarietyIds');
+  });
+
+  it('a NYERS szoveges fajtanev onmagaban NEM zar ki', () => {
+    // Ez a gate legfontosabb biztositeka. A `grapeVarieties` a bolt
+    // specifikacios tablajabol jon, feloldatlanul - ott az "Olaszrizling" es
+    // a "Welschriesling" ket kulon sztring. Ha erre ulne a hard gate, ket
+    // bolt ugyanarrol a borrol hamis kizarast kapna.
+    const r = compare(
+      wine({ grapeVarieties: ['Olaszrizling'], grapeVarietyIds: [], grapeSignature: null }),
+      wine({ grapeVarieties: ['Welschriesling'], grapeVarietyIds: [], grapeSignature: null }),
+    );
+    expect(r.rejected).toBe(false);
+    expect(r.hardContradictions).toHaveLength(0);
   });
 
   it('ugyanaz a fajta kanonikus nevre feloldva NEM zar ki', () => {
@@ -125,21 +138,21 @@ describe('a fajta elterese kizar', () => {
   it('reszleges atfedes (cuvee) TARTOZKODAS, nem kizaras', () => {
     // Az egyik bolt harom fajtat sorol fel, a masik csak kettot. Ez nem
     // bizonyitja, hogy mas borrol van szo - ezert nem szabad kizarni.
-    const a = ['Cabernet Sauvignon', 'Merlot', 'Cabernet Franc'];
-    const b = ['Cabernet Sauvignon', 'Merlot'];
+    const a = ['g-cs', 'g-merlot', 'g-cf'];
+    const b = ['g-cs', 'g-merlot'];
     const r = compare(
-      wine({ grapeVarieties: a, grapeSignature: grapeSignature(a) }),
-      wine({ grapeVarieties: b, grapeSignature: grapeSignature(b) }),
+      wine({ grapeVarietyIds: a, grapeSignature: a.join('+') }),
+      wine({ grapeVarietyIds: b, grapeSignature: b.join('+') }),
     );
     expect(r.rejected).toBe(false);
-    const grape = r.fields.find((f) => f.field === 'grapeVarieties');
+    const grape = r.fields.find((f) => f.field === 'grapeVarietyIds');
     expect(grape?.state).toBe('unknown');
   });
 
   it('ismeretlen fajta az egyik oldalon NEM zar ki', () => {
     const r = compare(wine(), wine({ grapeVarieties: [], grapeVarietyIds: [], grapeSignature: null }));
     expect(r.rejected).toBe(false);
-    expect(r.fields.find((f) => f.field === 'grapeVarieties')?.state).toBe('unknown');
+    expect(r.fields.find((f) => f.field === 'grapeVarietyIds')?.state).toBe('unknown');
   });
 });
 

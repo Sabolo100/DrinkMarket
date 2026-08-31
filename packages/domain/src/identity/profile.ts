@@ -38,7 +38,10 @@ const FIELD_ALIASES: Record<string, string> = {
   dosage_style: 'dosageStyle',
   cask_finish: 'caskFinish',
   abv_percent: 'abvPercent',
-  grape_varieties: 'grapeVarieties',
+  // A DB-profil beszelo kulcsa a FELOLDOTT azonositomezore mutat: a hard gate
+  // csak ott biztonsagos. A nyers szoveges `grapeVarieties` igy alapertelmezes
+  // szerint 'supporting' marad, azaz puha jel.
+  grape_varieties: 'grapeVarietyIds',
   // A szotarra feloldott azonositok. A DB-profil a beszelo kulcsot hasznalja,
   // az osszehasonlitas viszont az azonositon dol el.
   wine_style: 'wineStyleId',
