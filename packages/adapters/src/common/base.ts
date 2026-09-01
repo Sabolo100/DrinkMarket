@@ -319,6 +319,26 @@ export abstract class BaseAdapter implements ShopAdapter {
       };
     }
 
+    // Masodik vedvonal: az ATIRANYITAS UTANI URL is termekoldalra mutasson.
+    // A cellista szurese csak a kiindulo URL-t latja; egy archivumra vagy
+    // kategoriaoldalra atiranyito termek-URL igy is bejuthatna. Egy archivum
+    // <h1>-e nevnek latszik ("badacsony"), ezert a kinyerooldal onmagaban nem
+    // venne eszre - a katalogusba pedig cimkenevek kerulnenek termekkent.
+    const finalUrl = res.finalUrl || target.url;
+    if (!looksLikeProductUrl(finalUrl, {
+      include: cfg.productUrlInclude,
+      exclude: cfg.productUrlExclude,
+    })) {
+      return {
+        status: 'not_product',
+        diagnostics: {
+          adapterKey: this.key, adapterVersion: this.version,
+          notes: [`A vegleges URL nem termekoldalra mutat: ${finalUrl}`],
+        },
+        evidence: {},
+      };
+    }
+
     const platform = await this.fetchPlatformData(ctx, target, res.body).catch(() => null);
 
     const extracted = extractListing({

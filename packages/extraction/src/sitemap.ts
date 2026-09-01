@@ -99,24 +99,68 @@ export function sitemapsFromRobots(robotsTxt: string): string[] {
 }
 
 /**
+ * Az utvonal szegmensei kisbetusen. Ez a kulcs: a korabbi valtozat SZOVEGES
+ * reszletet keresett, ezert a '/cimke/' minta nem fogta meg a
+ * '/termekcimke/'-t - a "cimke" elott ott a "termek" szo vege, nem perjel.
+ * Ugyanigy csuszott at a WooCommerce angol alapertelmezese, a '/product-tag/'.
+ */
+function pathSegments(url: string): string[] {
+  let path = url;
+  try { path = new URL(url).pathname; } catch { /* relativ URL: maradjon a nyers */ }
+  return path.toLowerCase().split('/').filter(Boolean);
+}
+
+/**
+ * Termekoldalt jelzo utszakaszok. Ha ezek barmelyike szerepel, az oldal termek
+ * - meg akkor is, ha az utban archivumra utalo szo is van. Ez tartja meg a
+ * Shopify '/collections/<gyujtemeny>/products/<termek>' formajat.
+ */
+const PRODUCT_SEGMENTS = new Set([
+  'termek', 'termekek', 'product', 'products', 'item', 'bolt-termek',
+]);
+
+/**
+ * Archivumot jelzo utszakaszok: cimke-, kategoria-, szerzo- es lapozooldalak.
+ * Ezek listak, nem termekek - a rajtuk levo <h1> viszont nevnek latszik, ezert
+ * a kinyeresi oldal onmagaban nem veszi eszre oket.
+ *
+ * Szandekosan NEM szerepel itt a marka/gyarto: azok nemely boltban valodi
+ * termekutvonal reszei, es egy tevesen kizart termek nema adatvesztes.
+ */
+const ARCHIVE_SEGMENTS = new Set([
+  'termekcimke', 'termek-cimke', 'product-tag', 'tag', 'tags', 'cimke', 'cimkek',
+  'termekkategoria', 'termek-kategoria', 'product-category', 'product-cat',
+  'kategoria', 'kategoriak', 'category', 'categories',
+  'szerzo', 'author', 'page', 'oldal', 'lapozo',
+]);
+
+/** Nyilvanvaloan nem termek utak es fajltipusok. */
+const GENERIC_EXCLUDES = [
+  '/blog/', '/hir', '/news', '/cikk', '/kosar', '/cart', '/checkout',
+  '/fiok', '/account', '/login', '/regisztr', '/kapcsolat', '/contact',
+  '/adatvedelem', '/aszf', '/szallitas', '/rolunk', '/about',
+  '/gyik', '/faq', '.jpg', '.png', '.pdf', '/wp-content/', '/wp-json/',
+];
+
+/**
  * Termek-URL-e? Forrasonkent felulirhato mintakkal.
- * A vak szures veszelyes, ezert alapertelmezesben megengedo.
+ * A vak szures veszelyes, ezert alapertelmezesben megengedo - de az
+ * archivumoldalakat kizarjuk, mert azok termekkent felveve megmergeznek a
+ * katalogust: a cimke neve ("badacsony") lenne a "terméknev".
  */
 export function looksLikeProductUrl(url: string, patterns: { include?: string[]; exclude?: string[] } = {}): boolean {
   const u = url.toLowerCase();
+
+  // A forrasspecifikus konfiguracio mindent felulir.
   for (const ex of patterns.exclude ?? []) {
     if (new RegExp(ex, 'i').test(u)) return false;
   }
   if (patterns.include?.length) {
     return patterns.include.some((inc) => new RegExp(inc, 'i').test(u));
   }
-  // Alap heurisztika: a nyilvanvaloan nem termek utakat zarjuk ki
-  const genericExcludes = [
-    '/blog/', '/hir', '/news', '/cikk', '/kosar', '/cart', '/checkout',
-    '/fiok', '/account', '/login', '/regisztr', '/kapcsolat', '/contact',
-    '/adatvedelem', '/aszf', '/szallitas', '/rolunk', '/about',
-    '/gyik', '/faq', '.jpg', '.png', '.pdf', '/wp-content/', '/wp-json/',
-    '/tag/', '/cimke/', '/szerzo/', '/author/', '/page/', '/oldal/',
-  ];
-  return !genericExcludes.some((p) => u.includes(p));
+
+  const segments = pathSegments(url);
+  if (segments.some((seg) => PRODUCT_SEGMENTS.has(seg))) return true;
+  if (segments.some((seg) => ARCHIVE_SEGMENTS.has(seg))) return false;
+  return !GENERIC_EXCLUDES.some((p) => u.includes(p));
 }
