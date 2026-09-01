@@ -13,6 +13,7 @@ import { execute, query, queryOne } from '@radovin/db';
 import { logger, metrics, newCorrelationId, withContext } from '@radovin/observability';
 import type { WorkerConfig } from '../config.js';
 import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
+import { rotateTargets } from '../lib/discovery-cursor.js';
 import { raiseAlert, runShopQualityGate } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
 import { saveArtifact } from '../lib/artifacts.js';
@@ -71,6 +72,16 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
 
     await execute('UPDATE shops SET last_discovery_run_id = $2 WHERE id = $1', [shopId, runId]);
 
+    // Hol hagytuk abba, es mikor kezdodott a jelenlegi teljes kor.
+    const resumeState = (await queryOne<{ resumeUrl: string | null; cycleStartedAt: Date | null }>(
+      `SELECT discovery_resume_url AS "resumeUrl",
+              discovery_cycle_started_at AS "cycleStartedAt"
+         FROM shops WHERE id = $1`,
+      [shopId],
+    )) ?? { resumeUrl: null, cycleStartedAt: null };
+    // Az elso futasnal meg nincs kor - a futas kezdete a kor kezdete is.
+    const cycleStartedAt = resumeState.cycleStartedAt ?? new Date(started);
+
     let status: SourceStatus = 'ok';
     let newCount = 0; let updatedCount = 0; let unchangedCount = 0;
     let extractOk = 0; let extractFailed = 0; let missingCount = 0;
@@ -117,10 +128,30 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
       }
 
       // ── 2. Termekoldalak kinyerese ─────────────────────────────────────
+      //
+      // A futas idokorlatos, es a `gentle` policy 0,5 keres/mp uteme mellett
+      // 40 perc pontosan 1200 kerest jelent. Ha minden futas a lista elejerol
+      // indulna, a katalogus 1200 utani resze SOHA nem kerulne sorra - ezert
+      // a futas ott folytatja, ahol az elozo abbahagyta, es a lista vegen
+      // korbefordul.
       const seenListingIds = new Set<string>();
       const concurrency = Math.max(1, shop.crawlPolicy.maxConcurrency);
-      const targets = discovery.targets;
+      const allTargets = discovery.targets;
+
+      const rotation = rotateTargets(allTargets, resumeState.resumeUrl);
+      const targets = rotation.targets;
+
+      logger.info('discovery.resume', {
+        shopKey: shop.key, targets: targets.length, startIndex: rotation.startIndex,
+        resumedFrom: rotation.startIndex > 0 ? resumeState.resumeUrl : null,
+        ...(rotation.resumePointLost
+          ? { warning: 'A folytatasi URL mar nincs a cellistaban; az elejerol kezdunk.' }
+          : {}),
+      });
+
       let index = 0;
+      /** A legkisebb index, ameddig az idokorlat miatt NEM jutottunk el. */
+      let cutoffIndex: number | null = null;
 
       const workerLoop = async (): Promise<void> => {
         for (;;) {
@@ -128,6 +159,10 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
           if (i >= targets.length) return;
           if (Date.now() - started > config.maxRunDurationMs) {
             status = 'partial';
+            // Tobb parhuzamos szal is ideerhet; a legkisebb index a helyes
+            // folytatasi pont. A meg futo keresek ujrafeldolgozasa artalmatlan,
+            // mert a perzisztalas idempotens.
+            cutoffIndex = cutoffIndex === null ? i : Math.min(cutoffIndex, i);
             return;
           }
           const target = targets[i]!;
@@ -172,24 +207,58 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
 
       await Promise.all(Array.from({ length: concurrency }, () => workerLoop()));
 
-      // ── 3. Eltunt listingek jelolese ───────────────────────────────────
-      // CSAK teljes, egeszseges discovery utan (spec 16.1) - reszleges futas
-      // nem jelenthet "eltunt" allapotot.
-      if (discovery.completeness === 'complete' && status === 'ok' && seenListingIds.size > 0) {
+      // ── 3. A kor allapotanak rogzitese ─────────────────────────────────
+      // Ha az idokorlat vagott el minket, elmentjuk a kovetkezo feldolgozatlan
+      // cel URL-jet; ha vegigertunk a teljes listan, a kor lezarul.
+      // Lokalis konstans: a cutoffIndex closure-ben irodik, ezert a fordito
+      // csak igy tudja szukiteni a tipusat.
+      const cutoff: number | null = cutoffIndex;
+      const cycleCompleted = cutoff === null;
+      if (cycleCompleted) {
+        await execute(
+          `UPDATE shops SET discovery_resume_url = NULL, discovery_cycle_started_at = now()
+            WHERE id = $1`,
+          [shopId],
+        );
+      } else {
+        const nextUrl = targets[cutoff]?.url ?? null;
+        await execute(
+          `UPDATE shops
+              SET discovery_resume_url = $2,
+                  discovery_cycle_started_at = coalesce(discovery_cycle_started_at, $3)
+            WHERE id = $1`,
+          [shopId, nextUrl, cycleStartedAt],
+        );
+        logger.info('discovery.partial_cutoff', {
+          shopKey: shop.key,
+          feldolgozott: cutoff,
+          hatralevo: targets.length - cutoff,
+          folytatas: nextUrl,
+          ok: `Idokorlat (${Math.round(config.maxRunDurationMs / 60000)} perc). A kovetkezo futas innen folytatja.`,
+        });
+      }
+
+      // ── 4. Eltunt listingek jelolese ───────────────────────────────────
+      // CSAK teljes, egeszseges KOR utan (spec 16.1). Korkoros feldolgozasnal
+      // egyetlen futas sem latja a teljes katalogust, ezert a helyes
+      // osszehasonlitasi alap a KOR kezdete, nem a futase.
+      if (cycleCompleted && discovery.completeness === 'complete' && status === 'ok') {
         const missing = await query<{ id: string }>(
           `SELECT id FROM source_listings
             WHERE shop_id = $1 AND listing_status = 'active'
-              AND id <> ALL($2::uuid[])
-              AND last_seen_at < now() - interval '1 hour'`,
-          [shopId, [...seenListingIds]],
+              AND last_seen_at < $2`,
+          [shopId, cycleStartedAt],
         );
         for (const row of missing) {
-          await markListingMissing(row.id, 'Nem szerepelt a teljes katalogus-discovery eredmenyeben.');
+          await markListingMissing(row.id, 'Nem szerepelt a teljes katalogus-korben.');
           missingCount++;
         }
-      } else if (status !== 'ok') {
+      } else {
         logger.info('discovery.skip_missing_detection', {
-          shopKey: shop.key, reason: `A futas ${status}, ezert nem jelolunk eltunt listinget.`,
+          shopKey: shop.key,
+          reason: cycleCompleted
+            ? `A futas ${status}, ezert nem jelolunk eltunt listinget.`
+            : 'A katalogus-kor meg nem zarult le, ezert nem jelolunk eltunt listinget.',
         });
       }
 
