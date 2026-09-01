@@ -132,6 +132,10 @@ const ARCHIVE_SEGMENTS = new Set([
   'termekkategoria', 'termek-kategoria', 'product-category', 'product-cat',
   'kategoria', 'kategoriak', 'category', 'categories',
   'szerzo', 'author', 'page', 'oldal', 'lapozo',
+  // Szerkesztosegi es vallalati tartalom. A bortarsasag /magazin/ szakasza
+  // 120 cikket adott a katalogusba, egyikuk sem termek; az allasajanlatok
+  // ugyanezt az utat jarjak.
+  'magazin', 'magazine', 'karrier', 'career', 'careers', 'allas', 'allasok', 'jobs',
 ]);
 
 /** Nyilvanvaloan nem termek utak es fajltipusok. */

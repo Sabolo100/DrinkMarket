@@ -31,6 +31,13 @@ describe('archivumoldalak kizarasa', () => {
     expect(looksLikeProductUrl(`${R}/termekkategoria/voros/`)).toBe(false);
   });
 
+  it('a magazin- es karrieroldal sem termek', () => {
+    // A bortarsasag /magazin/ szakasza 120 cikket adott a katalogusba, mind
+    // ar nelkul. Az allasajanlatok ugyanezt az utat jarjak.
+    expect(looksLikeProductUrl('https://www.bortarsasag.hu/hu/magazin/borkostolo-2026')).toBe(false);
+    expect(looksLikeProductUrl('https://www.bortarsasag.hu/hu/karrier/bolti-eladó')).toBe(false);
+  });
+
   it('szerzo- es lapozooldal sem termek', () => {
     expect(looksLikeProductUrl(`${R}/szerzo/kovacs/`)).toBe(false);
     expect(looksLikeProductUrl(`${R}/oldal/3/`)).toBe(false);

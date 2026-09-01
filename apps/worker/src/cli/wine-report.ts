@@ -175,6 +175,42 @@ async function main(): Promise<void> {
     process.stdout.write(`  ${r.token.padEnd(26)}${String(r.count).padStart(8)}${String(r.shops).padStart(7)}\n`);
   }
 
+  // -- Marka-/boraszatoldalak: a szotar legjobb nyersanyaga -----------------
+  //
+  // A not_product statuszu sorok tobbsege a boltok MARKA-szuro oldala, ahol az
+  // <h1> maga a boraszat kanonikus neve ("Gere Attila", "Takler Borbirtok").
+  // Ez lenyegesen jobb alapanyag, mint a terméknevekbol banyaszott n-gram: itt
+  // a bolt sajat, kuralt nevet adja.
+  //
+  // FIGYELEM: nem mind boraszat. Van kozottuk borvidek (Rueda, Treviso),
+  // sorfozde, sot nem-ital marka (Maldon, Coravin) es kategoria is
+  // ("Minden mas"). Ezert JAVASLAT, amit ember hagy jova.
+  const brandPages = await query<{ shop_key: string; raw_name: string }>(
+    `SELECT s.key AS shop_key, sl.raw_name
+       FROM source_listings sl
+       JOIN shops s ON s.id = sl.shop_id
+      WHERE sl.listing_status = 'not_product'
+        AND length(btrim(sl.raw_name)) BETWEEN 3 AND 60
+      ORDER BY s.key, sl.raw_name`,
+  );
+
+  if (brandPages.length) {
+    const seen = new Set<string>();
+    const uniq = brandPages.filter((b) => {
+      const k = b.raw_name.trim().toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    process.stdout.write(`\n=== MARKA-/BORASZATOLDALAK (${uniq.length} egyedi nev) ===\n`);
+    process.stdout.write('  A not_product oldalak nevei: boraszatjelolt-nyersanyag.\n\n');
+    for (const b of uniq.slice(0, 250)) {
+      process.stdout.write(`  ${b.shop_key.padEnd(14)}${b.raw_name}\n`);
+    }
+    if (uniq.length > 250) process.stdout.write(`  ... es meg ${uniq.length - 250} nev\n`);
+  }
+
+
   process.stdout.write('\n=== MINTA FELBONTASOK ===\n');
   for (const s of samples) {
     const p = s.parsed;
