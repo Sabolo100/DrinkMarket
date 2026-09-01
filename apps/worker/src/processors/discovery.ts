@@ -14,6 +14,9 @@ import { logger, metrics, newCorrelationId, withContext } from '@radovin/observa
 import type { WorkerConfig } from '../config.js';
 import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
 import { rotateTargets } from '../lib/discovery-cursor.js';
+
+/** Milyen surun adjon eletjelet a futo felderites. */
+const HEARTBEAT_INTERVAL_MS = 30_000;
 import { loadKnownListings } from '../lib/known-listings.js';
 import { raiseAlert, runShopQualityGate } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
@@ -163,6 +166,17 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
       /** A legkisebb index, ameddig az idokorlat miatt NEM jutottunk el. */
       let cutoffIndex: number | null = null;
 
+      // Szivveres: az utemezo ebbol ismeri fel a megszakadt futast. Idoalapu,
+      // nem elemszamalapu - egy lassu forrasnal a kettő nem ugyanaz, es a
+      // ritkitott letoltes miatt konnyen percekig nem lenne eletjel.
+      let lastBeat = Date.now();
+      const beat = async (): Promise<void> => {
+        if (Date.now() - lastBeat < HEARTBEAT_INTERVAL_MS) return;
+        lastBeat = Date.now();
+        await execute('UPDATE crawl_runs SET heartbeat_at = now() WHERE id = $1', [runId])
+          .catch(() => undefined);   // az eletjel elmaradasa ne bontsa meg a futast
+      };
+
       const workerLoop = async (): Promise<void> => {
         for (;;) {
           const i = index++;
@@ -189,6 +203,8 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
             cutoffIndex = cutoffIndex === null ? i : Math.min(cutoffIndex, i);
             return;
           }
+
+          await beat();
 
           const target = candidate;
           try {

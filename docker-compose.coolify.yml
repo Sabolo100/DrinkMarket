@@ -179,6 +179,12 @@ services:
       DATABASE_SSL: ${DATABASE_SSL:-false}
       REDIS_URL: ${REDIS_URL}
       SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-60}
+      # Hány perc életjel-szünet után tekintünk egy futást megszakadtnak.
+      # Egy deploy vagy OOM megöli a folyamatot, a crawl_runs sor viszont
+      # `running` marad, és amíg ott van, az adott webshopra nem indulhat új
+      # felderítés. A felismerés szívverés-alapú, nem időkorlát-alapú: egy
+      # 3 órás katalógusfutás legitim, ha ad életjelet.
+      STALE_RUN_MINUTES: ${STALE_RUN_MINUTES:-15}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: json
     depends_on:

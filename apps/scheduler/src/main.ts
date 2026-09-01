@@ -18,6 +18,12 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
   SCHEDULER_TICK_SECONDS: z.string().optional(),
+  /**
+   * Hany perc eletjel-szunet utan tekintunk egy futast megszakadtnak.
+   * Bovebben kell lennie a szivveres periodusanal (30 mp) es egy lassu
+   * adatbazis-tuskenel is, de rovidebbnek a felderitesi koznel.
+   */
+  STALE_RUN_MINUTES: z.string().optional(),
   TZ: z.string().default('Europe/Budapest'),
 });
 
@@ -92,11 +98,73 @@ async function schedule(input: ScheduleInput): Promise<boolean> {
  * Egy utemezesi kor. Advisory lock alatt fut, igy tobb scheduler peldany
  * egyszerre sem duplikal (Coolify tobbkonteneres deploy).
  */
-async function tick(redisUrl: string): Promise<void> {
+async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
   const correlationId = newCorrelationId();
   const result = await withAdvisoryLock('radovin:scheduler:tick', async () => {
     const scheduled: Record<string, number> = {};
     const bump = (key: string) => { scheduled[key] = (scheduled[key] ?? 0) + 1; };
+
+    // ── 0. Megszakadt futasok lezarasa ──────────────────────────────────
+    //
+    // Egy deploy vagy OOM megoli a futo folyamatot, a crawl_runs sor viszont
+    // `running` allapotban marad. Amig ott van, az adott webshopra NEM lehet
+    // uj felderitest inditani - sem kezzel, sem utemezetten -, es errol
+    // semmilyen jelzes nem keletkezik: a bolt csendben all.
+    //
+    // A felismeres SZIVVERES alapu, nem idokorlat alapu. Egy 3 oras
+    // katalogusfutas legitim; a kulonbseg nem az eltelt idoben van, hanem
+    // abban, hogy ad-e eletjelet.
+    const abandoned = await query<{ id: string; shop_key: string; run_type: string; started_at: Date }>(
+      `UPDATE crawl_runs r
+          SET status = 'failed',
+              source_status = 'timeout',
+              finished_at = now(),
+              duration_ms = (extract(epoch FROM now() - r.started_at) * 1000)::int,
+              errors = r.errors || jsonb_build_array(jsonb_build_object(
+                'code', 'RUN_ABANDONED',
+                'message', 'A futas eletjel nelkul maradt (' || $1 || ' percnel regebben). '
+                        || 'Valoszinu ok: konteners ujrainditas vagy deploy.'
+              ))
+        WHERE r.status = 'running'
+          AND coalesce(r.heartbeat_at, r.started_at) < now() - ($1 || ' minutes')::interval
+        RETURNING r.id::text,
+                  (SELECT key FROM shops WHERE id = r.shop_id) AS shop_key,
+                  r.run_type, r.started_at`,
+      [staleMinutes],
+    );
+
+    for (const run of abandoned) {
+      logger.warn('scheduler.run_abandoned', {
+        runId: run.id, shopKey: run.shop_key, runType: run.run_type,
+        startedAt: run.started_at,
+        hint: 'A futas lezarva. A webshop ujra felderitheto.',
+      });
+      bump('abandoned_run');
+    }
+
+    // Riasztas: aggregalt es cselekvesre alkalmas (spec 19.3). Egyedi futas
+    // nem general kulon riasztast, de a tenye, hogy futasok szakadnak meg,
+    // uzemeltetoi figyelmet igenyel.
+    if (abandoned.length) {
+      await execute(
+        `INSERT INTO alerts (alert_key, level, category, title, message, detail)
+         VALUES ($1, 'warn', 'queue', $2, $3, $4::jsonb)
+         ON CONFLICT (alert_key) WHERE resolved_at IS NULL
+         DO UPDATE SET message = EXCLUDED.message,
+                       detail = EXCLUDED.detail,
+                       occurrence_count = alerts.occurrence_count + 1,
+                       last_seen_at = now()`,
+        [
+          'scheduler:abandoned_runs',
+          'Megszakadt crawl futasok',
+          `${abandoned.length} futas maradt eletjel nelkul es lett lezarva. `
+            + 'Amig nyitva voltak, az erintett webshopokra nem indulhatott uj felderites.',
+          JSON.stringify({ runs: abandoned.map((r) => ({ shop: r.shop_key, type: r.run_type, startedAt: r.started_at })) }),
+        ],
+      ).catch((err) => {
+        logger.warn('scheduler.alert_failed', { error: err instanceof Error ? err.message : String(err) });
+      });
+    }
 
     // ── 1. Esedekes teljes katalogus-discovery ──────────────────────────
     const dueDiscovery = await query<{ id: string; key: string; adapter_key: string }>(
@@ -276,7 +344,10 @@ async function main(): Promise<void> {
   await query('SELECT 1');
 
   const tickSeconds = Number.parseInt(env.SCHEDULER_TICK_SECONDS ?? '60', 10) || 60;
-  logger.info('scheduler.starting', { tickSeconds });
+  // Bovebb a szivveres periodusanal (30 mp) es egy adatbazis-tuskenel is, de
+  // rovidebb annal, hogy egy megszakadt futas erdemben blokkoljon egy boltot.
+  const staleMinutes = Number.parseInt(env.STALE_RUN_MINUTES ?? '15', 10) || 15;
+  logger.info('scheduler.starting', { tickSeconds, staleMinutes });
 
   let running = true;
   let timer: NodeJS.Timeout | null = null;
@@ -284,7 +355,7 @@ async function main(): Promise<void> {
   const loop = async (): Promise<void> => {
     if (!running) return;
     try {
-      await tick(env.REDIS_URL);
+      await tick(env.REDIS_URL, staleMinutes);
     } catch (err) {
       logger.error('scheduler.tick_failed', {
         error: err instanceof Error ? err.message : String(err),
