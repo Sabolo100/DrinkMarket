@@ -106,6 +106,16 @@ services:
       REDIS_URL: ${REDIS_URL}
       WORKER_MODE: http
       WORKER_HTTP_CONCURRENCY: ${WORKER_HTTP_CONCURRENCY:-8}
+      # A felderítés futásonkénti kerete. A crawl policy kérésütemével együtt
+      # ez szabja meg, hány terméket ér el egy futás: 0,5 kérés/mp x 40 perc
+      # = 1200. Ezek nélkül a sorok nélkül a Coolify-ban beállított érték
+      # nem jutna el a konténerig.
+      WORKER_MAX_RUN_MINUTES: ${WORKER_MAX_RUN_MINUTES:-40}
+      WORKER_MAX_URLS_PER_RUN: ${WORKER_MAX_URLS_PER_RUN:-20000}
+      # Hány órán belül számít "frissnek" egy már ismert listing. Az ennél
+      # frissebbeket a felderítés átugorja - az átugrás nem kérés, tehát nem
+      # fogyasztja a fenti időkeretet.
+      DISCOVERY_SKIP_FRESH_HOURS: ${DISCOVERY_SKIP_FRESH_HOURS:-336}
       CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
       CRAWLER_CONTACT_EMAIL: ${CRAWLER_CONTACT_EMAIL:-}
       EVIDENCE_FS_PATH: /data/evidence

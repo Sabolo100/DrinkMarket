@@ -14,6 +14,7 @@ import { logger, metrics, newCorrelationId, withContext } from '@radovin/observa
 import type { WorkerConfig } from '../config.js';
 import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
 import { rotateTargets } from '../lib/discovery-cursor.js';
+import { loadKnownListings } from '../lib/known-listings.js';
 import { raiseAlert, runShopQualityGate } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
 import { saveArtifact } from '../lib/artifacts.js';
@@ -85,6 +86,8 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
     let status: SourceStatus = 'ok';
     let newCount = 0; let updatedCount = 0; let unchangedCount = 0;
     let extractOk = 0; let extractFailed = 0; let missingCount = 0;
+    let skippedFresh = 0;
+    const skippedIds: string[] = [];
     const changedListingIds: string[] = [];
     const errors: Array<{ code: string; message: string; url?: string }> = [];
 
@@ -149,6 +152,13 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
           : {}),
       });
 
+      // A mar ismert, friss listingeket atugorjuk. Az atugras NEM keres, ezert
+      // nem fogyasztja az idokeretet - a futas igy atsuhan a katalogus ismert
+      // reszen, es a teljes keretet uj termekekre kolti.
+      const known = config.discoverySkipFreshHours > 0
+        ? await loadKnownListings(shopId, config.discoverySkipFreshHours)
+        : null;
+
       let index = 0;
       /** A legkisebb index, ameddig az idokorlat miatt NEM jutottunk el. */
       let cutoffIndex: number | null = null;
@@ -157,6 +167,20 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
         for (;;) {
           const i = index++;
           if (i >= targets.length) return;
+
+          // Az atugras-vizsgalat MEGELOZI az idokorlatot: ingyenes lepesek
+          // nem eshetnek aldozatul az orának.
+          const candidate = targets[i]!;
+          if (known && !candidate.inlineListing) {
+            const hit = known.lookup(candidate);
+            if (hit && known.isFresh(hit)) {
+              seenListingIds.add(hit.id);
+              skippedIds.push(hit.id);
+              skippedFresh++;
+              continue;
+            }
+          }
+
           if (Date.now() - started > config.maxRunDurationMs) {
             status = 'partial';
             // Tobb parhuzamos szal is ideerhet; a legkisebb index a helyes
@@ -165,7 +189,8 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
             cutoffIndex = cutoffIndex === null ? i : Math.min(cutoffIndex, i);
             return;
           }
-          const target = targets[i]!;
+
+          const target = candidate;
           try {
             const result = await adapter.extractListing(ctx, target);
             if (result.status !== 'ok' || !result.listing) {
@@ -206,6 +231,23 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
       };
 
       await Promise.all(Array.from({ length: concurrency }, () => workerLoop()));
+
+      // Az atugrott listingeket LATTUK a katalogusban - csak nem toltottuk le
+      // ujra. A last_seen_at frissitese nelkul a kor-alapu eltunt-jeloles
+      // tevesen "eltunt"-nek jelolne oket.
+      if (skippedIds.length) {
+        await execute(
+          `UPDATE source_listings SET last_seen_at = now() WHERE id = ANY($1::uuid[])`,
+          [skippedIds],
+        );
+        logger.info('discovery.skipped_fresh', {
+          shopKey: shop.key,
+          atugrott: skippedFresh,
+          letoltott: extractOk + extractFailed,
+          ok: `Mar ismert es ${config.discoverySkipFreshHours} oran belul sikeresen kinyert termekek. `
+            + 'Az aruk frissiteserol a known-listing-refresh sor gondoskodik.',
+        });
+      }
 
       // ── 3. A kor allapotanak rogzitese ─────────────────────────────────
       // Ha az idokorlat vagott el minket, elmentjuk a kovetkezo feldolgozatlan

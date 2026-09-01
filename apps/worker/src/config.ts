@@ -34,6 +34,11 @@ const schema = z.object({
   WORKER_MAX_URLS_PER_RUN: intish(20000),
   WORKER_MAX_RUN_MINUTES: intish(40),
   WORKER_MAX_CLUSTER_JOBS: intish(3000),
+  // Hany oran belul szamit "friss"-nek egy mar ismert listing a felderitesben.
+  // Alap: 14 nap. Hosszabbnak kell lennie a felderitesi kozzel (alap heti),
+  // kulonben minden korben mindent ujraltoltenenk, es a keret sosem jutna el
+  // a katalogus vegeig. 0 = az atugras kikapcsolva.
+  DISCOVERY_SKIP_FRESH_HOURS: intish(336),
 });
 
 export interface WorkerConfig {
@@ -55,6 +60,7 @@ export interface WorkerConfig {
   maxUrlsPerRun: number;
   maxRunDurationMs: number;
   maxClusterJobsPerRun: number;
+  discoverySkipFreshHours: number;
 }
 
 let cached: WorkerConfig | null = null;
@@ -86,6 +92,7 @@ export function loadWorkerConfig(): WorkerConfig {
     maxUrlsPerRun: v.WORKER_MAX_URLS_PER_RUN,
     maxRunDurationMs: v.WORKER_MAX_RUN_MINUTES * 60_000,
     maxClusterJobsPerRun: v.WORKER_MAX_CLUSTER_JOBS,
+    discoverySkipFreshHours: v.DISCOVERY_SKIP_FRESH_HOURS,
   };
   return cached;
 }
