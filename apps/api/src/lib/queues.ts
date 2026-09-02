@@ -92,7 +92,22 @@ export interface EnqueueOptions {
  * Job sorba allitasa + tartos job_runs rekord. A job_runs egyediseg
  * (idempotency_key) vedi a duplikalt feldolgozast (spec 19.2).
  */
-export async function enqueue(opts: EnqueueOptions): Promise<{ jobId: string; deduped: boolean }> {
+/**
+ * A beküldés eredménye. A `state` és a `waiting` azért kell, mert a
+ * `shop-discovery-http` sor párhuzamossága szándékosan 2 (a felderítés drága):
+ * egy beküldött job simán VÁRHAT. A felület enélkül azt írta ki, hogy
+ * "elindult", és a felhasználó joggal hitte, hogy elveszett a kérése.
+ */
+export interface EnqueueResult {
+  jobId: string;
+  deduped: boolean;
+  /** A job BullMQ-allapota a bekuldes utan: waiting | active | delayed | ... */
+  state: string;
+  /** Hany job var meg ebben a sorban (ezt is beleertve). */
+  waiting: number;
+}
+
+export async function enqueue(opts: EnqueueOptions): Promise<EnqueueResult> {
   const queue = getQueue(opts.queue, opts.redisUrl);
   const jobOptions: JobsOptions = {
     ...defaultJobOptions(opts.queue),
@@ -107,7 +122,10 @@ export async function enqueue(opts: EnqueueOptions): Promise<{ jobId: string; de
     if (existing) {
       const state = await existing.getState().catch(() => 'unknown');
       if (state === 'waiting' || state === 'active' || state === 'delayed') {
-        return { jobId: String(existing.id), deduped: true };
+        return {
+          jobId: String(existing.id), deduped: true, state,
+          waiting: await queue.getWaitingCount().catch(() => 0),
+        };
       }
       await existing.remove().catch(() => undefined);
     }
@@ -134,7 +152,12 @@ export async function enqueue(opts: EnqueueOptions): Promise<{ jobId: string; de
     logger.warn('queue.job_run_insert_failed', { queue: opts.queue, error: String(err) });
   });
 
-  return { jobId: String(job.id), deduped: false };
+  return {
+    jobId: String(job.id),
+    deduped: false,
+    state: await job.getState().catch(() => 'waiting'),
+    waiting: await queue.getWaitingCount().catch(() => 0),
+  };
 }
 
 /**

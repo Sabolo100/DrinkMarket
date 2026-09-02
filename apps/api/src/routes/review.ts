@@ -524,7 +524,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
       actorUserId: actor.id, action: 'review.promote_listing', entityType: 'source_listing',
       entityId: rc.source_listing_id, correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting };
   });
 
   /** Alias-javaslat letrehozasa. A promocio KULON adminmuvelet (spec 8.10). */

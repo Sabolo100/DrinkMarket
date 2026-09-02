@@ -427,7 +427,7 @@ export async function productRoutes(app: FastifyInstance, config: AppConfig): Pr
       actorUserId: actor.id, action: 'product.search_now', entityType: 'canonical_variant', entityId: id,
       metadata: { shopId: body.shopId }, correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId, deduped: job.deduped };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting };
   });
 
   app.post('/products/:id/approve', async (req) => {

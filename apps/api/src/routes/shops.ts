@@ -355,7 +355,7 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
       actorUserId: actor.id, action: 'listing.search_equivalents', entityType: 'source_listing',
       entityId: id, correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting };
   });
 
   /**
@@ -408,7 +408,7 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
       actorUserId: actor.id, action: 'listing.fetch_url', entityType: 'source_listing',
       summary: parsed.toString(), metadata: { shopKey: shop.key }, correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId, shopId: shop.id, shopKey: shop.key };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting, shopId: shop.id, shopKey: shop.key };
   });
 
   // ── Crawl muveletek (spec 21.5) ──────────────────────────────────────────
@@ -443,7 +443,12 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
       actorUserId: actor.id, action: 'shop.discovery_triggered', entityType: 'shop', entityId: id,
       summary: `Kezi discovery inditva: ${shop.key}`, correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId, deduped: job.deduped };
+    return {
+      accepted: true, jobId: job.jobId, deduped: job.deduped,
+      // A felderites sorat szandekosan 2 parhuzamos job dolgozza fel, ezert egy
+      // bekuldott feladat simán varhat. A felulet enelkul "elindult"-at irt.
+      state: job.state, waiting: job.waiting,
+    };
   });
 
   app.post('/shops/:id/health-check', async (req) => {
@@ -458,7 +463,7 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
       actorUserId: actor.id, action: 'shop.health_check', entityType: 'shop', entityId: id,
       correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting };
   });
 
   app.post('/shops/:id/price-refresh', async (req) => {
@@ -474,7 +479,7 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
       actorUserId: actor.id, action: 'shop.price_refresh', entityType: 'shop', entityId: id,
       correlationId: req.correlationId,
     });
-    return { accepted: true, jobId: job.jobId };
+    return { accepted: true, jobId: job.jobId, deduped: job.deduped, state: job.state, waiting: job.waiting };
   });
 
   // ── Futasok (spec 27.2) ──────────────────────────────────────────────────
