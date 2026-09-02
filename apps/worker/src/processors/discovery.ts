@@ -386,12 +386,23 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
         ],
       );
 
+      // A visszalepes szamitasa. A `blocked` forrasnal a szokasos kozon FELUL
+      // varunk: ha a webshop mar elutasit minket, az azonnali ujraprobalas
+      // csak melyiti a helyzetet.
+      const healthy = finalStatus === 'succeeded' || finalStatus === 'partial';
       await execute(
         `UPDATE shops SET
            health_status = $2,
            health_checked_at = now(),
            last_successful_discovery_at = CASE WHEN $3 THEN now() ELSE last_successful_discovery_at END,
-           next_discovery_at = now() + (discovery_interval_hours || ' hours')::interval
+           consecutive_discovery_failures = CASE WHEN $4 THEN 0
+                                                 ELSE consecutive_discovery_failures + 1 END,
+           next_discovery_at = now()
+             + (discovery_interval_hours || ' hours')::interval
+             + CASE WHEN $4 THEN interval '0'
+                    -- 24 ora / sikertelen futas, legfeljebb egy hetnyi ratartas
+                    ELSE least((consecutive_discovery_failures + 1) * 24, 168) * interval '1 hour'
+               END
          WHERE id = $1`,
         [
           shopId,
@@ -399,6 +410,7 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
             : finalStatus === 'partial' ? 'degraded'
               : status === 'blocked' ? 'blocked' : 'failing',
           finalStatus === 'succeeded',
+          healthy,
         ],
       );
 
@@ -442,7 +454,21 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
           WHERE id = $1`,
         [runId, Date.now() - started, JSON.stringify([{ code: 'RUN_EXCEPTION', message }])],
       );
-      await execute(`UPDATE shops SET health_status = 'failing', health_checked_at = now() WHERE id = $1`, [shopId]);
+      // A next_discovery_at frissitese ITT KORABBAN HIANYZOTT. Enelkul a mezo a
+      // multban maradt, es az utemezo percenkent ujra bekuldte a boltot -
+      // eleisben ez ~6 ora crawlolast jelentett egy ejszaka alatt, ami utan a
+      // forras blokkolni kezdett.
+      await execute(
+        `UPDATE shops SET
+           health_status = 'failing',
+           health_checked_at = now(),
+           consecutive_discovery_failures = consecutive_discovery_failures + 1,
+           next_discovery_at = now()
+             + (discovery_interval_hours || ' hours')::interval
+             + least((consecutive_discovery_failures + 1) * 24, 168) * interval '1 hour'
+         WHERE id = $1`,
+        [shopId],
+      );
       await raiseAlert({
         key: `discovery:exception:${shopId}`,
         level: 'error', category: 'crawler', shopId,

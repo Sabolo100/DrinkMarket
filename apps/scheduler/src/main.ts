@@ -133,6 +133,23 @@ async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
       [staleMinutes],
     );
 
+    // A lezaras utan a bolt kovetkezo felderiteset is el kell tolni. Enelkul a
+    // `next_discovery_at` a multban maradna, es a kovetkezo tick - egy percen
+    // belul - ujra bekuldene ugyanazt a boltot.
+    if (abandoned.length) {
+      await execute(
+        `UPDATE shops SET
+           consecutive_discovery_failures = consecutive_discovery_failures + 1,
+           next_discovery_at = now()
+             + (discovery_interval_hours || ' hours')::interval
+             + least((consecutive_discovery_failures + 1) * 24, 168) * interval '1 hour'
+         WHERE key = ANY($1::text[])`,
+        [abandoned.filter((r) => r.shop_key).map((r) => r.shop_key)],
+      ).catch((err) => {
+        logger.warn('scheduler.backoff_failed', { error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+
     for (const run of abandoned) {
       logger.warn('scheduler.run_abandoned', {
         runId: run.id, shopKey: run.shop_key, runType: run.run_type,

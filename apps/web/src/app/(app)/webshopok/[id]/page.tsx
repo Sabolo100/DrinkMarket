@@ -17,6 +17,7 @@ export default async function ShopDetailPage({ params }: { params: Promise<{ id:
       shop: Record<string, unknown>;
       config: Record<string, unknown> | null;
       recentRuns: Array<Record<string, unknown>>;
+      pendingJobs?: Array<Record<string, unknown>>;
     }>(`/shops/${id}`);
   } catch {
     notFound();
@@ -228,7 +229,24 @@ export default async function ShopDetailPage({ params }: { params: Promise<{ id:
               </tr>
             </thead>
             <tbody>
-              {data.recentRuns.length === 0 ? (
+              {/* Beküldött, de még el nem indult feladatok. A crawl_runs sort a
+                  feldolgozó hozza létre, amikor ténylegesen hozzákezd - a
+                  várakozó feladat addig sehol nem látszott. */}
+              {(data.pendingJobs ?? []).map((j) => (
+                <tr key={`pending-${String(j['id'])}`} style={{ opacity: 0.75 }}>
+                  <td className="freshness">{dateTime(j['created_at'] as string)}</td>
+                  <td style={{ fontSize: 12 }}>{runTypeLabel(jobNameToRunType(String(j['job_name'])))}</td>
+                  <td>
+                    <span className="chip chip-neutral" title="A feladat sorban áll; a felderítést egyszerre két futás dolgozza fel.">
+                      várakozik
+                    </span>
+                  </td>
+                  <td colSpan={9} className="muted" style={{ fontSize: 11 }}>
+                    beküldve, még nem indult el
+                  </td>
+                </tr>
+              ))}
+              {data.recentRuns.length === 0 && (data.pendingJobs ?? []).length === 0 ? (
                 <tr><td colSpan={12} className="muted" style={{ textAlign: 'center', padding: 20 }}>
                   Még nem futott le semmi ezen a forráson.
                 </td></tr>
@@ -296,6 +314,17 @@ function RunStatusChip({ status }: { status: string }) {
   };
   const s = map[status] ?? { label: status, tone: 'chip-neutral', glyph: '·' };
   return <span className={`chip ${s.tone}`} data-glyph={s.glyph}>{s.label}</span>;
+}
+
+/** A sorban allo job neve a futastipus-cimkere kepezve. */
+function jobNameToRunType(jobName: string): string {
+  const map: Record<string, string> = {
+    discovery: 'discovery',
+    'health-check': 'health_check',
+    'refresh-shop': 'price_refresh',
+    research: 'targeted_search',
+  };
+  return map[jobName] ?? jobName;
 }
 
 function runTypeLabel(type: string): string {

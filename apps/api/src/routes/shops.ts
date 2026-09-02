@@ -52,7 +52,19 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
          FROM crawl_runs WHERE shop_id = $1 ORDER BY started_at DESC LIMIT 20`,
       [id],
     );
-    return { shop, config: config_, recentRuns: runs };
+    // Bekuldott, de meg el nem indult feladatok. A `crawl_runs` sort a
+    // feldolgozo hozza letre, amikor tenylegesen hozzakezd - a sorban allo
+    // feladat addig sehol nem latszott, es a felhasznalo joggal hitte, hogy
+    // elveszett a kerese. A felderites sorat szandekosan ket parhuzamos job
+    // dolgozza fel, ezert a varakozas normalis allapot.
+    const pending = await query(
+      `SELECT id, queue, job_name, created_at, priority
+         FROM job_runs
+        WHERE shop_id = $1 AND status = 'queued'
+        ORDER BY created_at DESC LIMIT 10`,
+      [id],
+    );
+    return { shop, config: config_, recentRuns: runs, pendingJobs: pending };
   });
 
   app.patch('/shops/:id', async (req) => {
