@@ -142,3 +142,49 @@ describe('bizonyitek a jovahagyashoz', () => {
     expect(out[0]?.examples[0]).toContain('Sauska');
   });
 });
+
+describe('a valos meres szemetje - regresszio', () => {
+  it('a puszta jelolo nem jelolt', () => {
+    // A `chateau` 415 elofordulassal, 5 bolttal a rangsor elejen allt.
+    // Onmagaban semmit nem azonosit: minden francia birtok neveben ott van.
+    const inputs = [
+      ...inShops('chateau margaux', ['a', 'b']),
+      ...inShops('chateau latour', ['a', 'b']),
+      ...inShops('chateau palmer', ['a', 'b']),
+    ];
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).not.toContain('chateau');
+    expect(names(out)).toContain('chateau margaux');
+  });
+
+  it('kotoszora vegzodo nevtoredek nem jelolt', () => {
+    // A "chateau de" 42 elofordulassal kerult a rangsor elejere, mert MINDEN
+    // "Château de X" bor beleszamolt. Nevtoredek, nem boraszat.
+    const inputs = [
+      ...inShops('chateau de sales', ['a', 'b']),
+      ...inShops('chateau de beru', ['a', 'b']),
+      ...inShops('domaine de montille', ['a', 'b']),
+    ];
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).not.toContain('chateau de');
+    expect(names(out)).not.toContain('domaine de');
+    expect(names(out)).toEqual(expect.arrayContaining(['chateau de sales', 'domaine de montille']));
+  });
+
+  it('kotoszoval kezdodo nevtoredek sem jelolt', () => {
+    // A "Disznóko Szolobirtok ES Pinceszet" nevbol az utotag-ablak
+    // "es pinceszet"-et vagott ki - ertelmetlen toredek.
+    const inputs = inShops('disznoko szolobirtok es pinceszet', ['a', 'b']);
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).not.toContain('es pinceszet');
+  });
+
+  it('a hosszabb jelolos alak megmarad, ha a rovidebb kotoszora vegzodne', () => {
+    // "Chateau Cos d'Estournel": a 3-gram "chateau cos d" kotoszora vegzodik,
+    // ezert kell a 4 tokenes ablak.
+    const inputs = inShops('chateau cos d estournel', ['a', 'b']);
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).toContain('chateau cos d estournel');
+    expect(names(out)).not.toContain('chateau cos d');
+  });
+});

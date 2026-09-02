@@ -90,6 +90,20 @@ const HU_FIRST_NAMES = new Set([
   'marcell', 'mate', 'olivier', 'richard', 'roland', 'sarolta', 'tas', 'vince',
 ]);
 
+/**
+ * Kotoszok es nevelok. Ezek a nev BELSEJEBEN ervenyesek ("Château de Sales",
+ * "Tenuta dell'Ornellaia"), a SZELEN viszont csonka nevet jeleznek.
+ *
+ * A valos meresben ez adta a legtobb szemetet: a "chateau de" 42 elofordulassal
+ * es 4 bolttal a rangsor elejere kerult, mert MINDEN "Château de X" bor
+ * beleszamolt - holott ez nem egy boraszat neve, hanem egy nevtoredek.
+ */
+const CONNECTORS = new Set([
+  'de', 'du', 'des', 'da', 'do', 'della', 'dell', 'del', 'di', 'dei',
+  'la', 'le', 'les', 'los', 'las', 'el', 'il', 'al', 'au', 'aux', 'a', 'd',
+  'es', 'and', 'und', 'von', 'van', 'zu', 'of', 'y', 'e', 'i',
+]);
+
 const NUMERIC_RE = /^[\d.,%]+$/;
 
 export interface MineInput {
@@ -171,10 +185,18 @@ function candidatesFrom(tokens: readonly string[]): Array<{ name: string; leadin
   const found = new Map<string, { leading: boolean; marker: boolean }>();
   const push = (parts: readonly string[], leading: boolean, marker: boolean) => {
     if (!parts.length) return;
+    const first = parts[0]!;
+    const last = parts[parts.length - 1]!;
+
     // Az elso token nem lehet zaj - azzal boraszatnev nem kezdodik.
-    if (isNoise(parts[0]!)) return;
-    // A tobbi tokenben megturjuk a rovid kototszot, de szamot nem.
+    if (isNoise(first)) return;
+    // Szam sehol a nevben.
     if (parts.some((p) => NUMERIC_RE.test(p))) return;
+    // Kotoszo a SZELEN csonka nevet jelez: "chateau de", "es pinceszet".
+    if (CONNECTORS.has(first) || CONNECTORS.has(last)) return;
+    // Csupa jelolo es kotoszo nem nev: a puszta "chateau" 415 elofordulassal
+    // vezette a rangsort, holott onmagaban semmit nem azonosit.
+    if (parts.every((p) => PREFIX_MARKERS.has(p) || SUFFIX_MARKERS.has(p) || CONNECTORS.has(p))) return;
     const name = parts.join(' ');
     const prev = found.get(name);
     found.set(name, {
@@ -190,12 +212,12 @@ function candidatesFrom(tokens: readonly string[]): Array<{ name: string; leadin
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
     if (PREFIX_MARKERS.has(t)) {
-      for (let n = 2; n <= 3; n++) {
+      for (let n = 2; n <= 4; n++) {
         if (i + n <= tokens.length) push(tokens.slice(i, i + n), i === 0, true);
       }
     }
     if (SUFFIX_MARKERS.has(t)) {
-      for (let n = 2; n <= 3; n++) {
+      for (let n = 2; n <= 4; n++) {
         if (i - n + 1 >= 0) push(tokens.slice(i - n + 1, i + 1), i - n + 1 === 0, true);
       }
     }
