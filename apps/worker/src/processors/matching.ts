@@ -203,6 +203,8 @@ export async function promoteListingToVariant(
     dosage_style: string | null; puttony: number | null; abv_percent: number | null;
     gtin: string | null; gtin_normalized: string | null; region: string | null;
     colour: string | null; country_code: string | null; grape_varieties: string[];
+    wine_style_id: string | null; vineyard_id: string | null; wine_region_id: string | null;
+    grape_signature: string | null; grape_ids: string[] | null;
     evidence: Record<string, unknown>; identity_hash: string | null;
     identity_profile: Record<string, unknown>; comparison_policy: Record<string, unknown>;
   }>(
@@ -212,9 +214,16 @@ export async function promoteListingToVariant(
             sl.edition, sl.cask_finish, sl.dosage_style, sl.puttony, sl.abv_percent,
             sl.gtin, sl.gtin_normalized, sl.region, sl.colour, sl.country_code,
             sl.grape_varieties, sl.evidence, sl.identity_hash,
+            sl.wine_style_id, sl.vineyard_id, sl.wine_region_id, sl.grape_signature,
+            slg.ids AS grape_ids,
             pc.identity_profile, pc.comparison_policy
        FROM source_listings sl
        LEFT JOIN product_categories pc ON pc.id = sl.category_id
+       LEFT JOIN LATERAL (
+         SELECT array_agg(g.grape_variety_id::text) AS ids
+           FROM source_listing_grapes g
+          WHERE g.source_listing_id = sl.id
+       ) slg ON true
       WHERE sl.id = $1`,
     [listingId],
   );
@@ -239,8 +248,12 @@ export async function promoteListingToVariant(
      ), inserted AS (
        INSERT INTO product_families
          (category_id, producer_id, brand_id, canonical_name, region, colour,
-          origin_country, grape_varieties, status, created_by)
-       SELECT $1, $3, $4, $2, $5, $6, $7, $8, 'proposed', $9
+          origin_country, grape_varieties, wine_style_id, status, created_by)
+       -- A $3 tipusat a fenti CTE ::text osszehasonlitasa rogziti, ezert itt
+       -- kifejezetten vissza kell alakitani uuid-re. Enelkul a Postgres
+       -- "column producer_id is of type uuid but expression is of type text"
+       -- hibaval elszall - vagyis a valtozat-javaslat NEM tud letrejonni.
+       SELECT $1, nullif($3, '')::uuid, $4, $2, $5, $6, $7, $8, $10, 'proposed', $9
         WHERE NOT EXISTS (SELECT 1 FROM existing)
        RETURNING id
      )
@@ -248,7 +261,7 @@ export async function promoteListingToVariant(
     [
       categoryId, familyName, listing.producer_id, listing.brand_id,
       listing.region, listing.colour, listing.country_code,
-      listing.grape_varieties ?? [], actorUserId,
+      listing.grape_varieties ?? [], actorUserId, listing.wine_style_id,
     ],
   );
   if (!family) return null;
@@ -264,9 +277,10 @@ export async function promoteListingToVariant(
         age_statement_years, volume_ml, pack_count, packaging_type, edition,
         cask_finish, dosage_style, puttony, abv_percent, gtin, gtin_normalized,
         identity_profile_json, comparison_policy_json, evidence, identity_hash,
-        status, origin, origin_listing_id, created_by)
+        status, origin, origin_listing_id, created_by,
+        wine_style_id, vineyard_id, wine_region_id, grape_signature)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,
-             $18::jsonb,$19,$20,'auto_discovery',$21,$22)
+             $18::jsonb,$19,$20,'auto_discovery',$21,$22,$23,$24,$25,$26)
      ON CONFLICT DO NOTHING
      RETURNING id`,
     [
@@ -278,9 +292,27 @@ export async function promoteListingToVariant(
       JSON.stringify(listing.comparison_policy ?? {}),
       JSON.stringify(listing.evidence ?? {}),
       listing.identity_hash, status, listingId, actorUserId,
+      listing.wine_style_id, listing.vineyard_id, listing.wine_region_id,
+      listing.grape_signature,
     ],
   );
   if (!variant) return null;
+
+  // A fajtahalmaz atmasolasa a kapcsolotablaba. A `grape_signature` maga is
+  // ebbol keszult, de a halmazt is atvisszuk: az osszehasonlitas az
+  // azonositokon dolgozik, nem a lenyomaton.
+  for (const [pos, grapeId] of (listing.grape_ids ?? []).entries()) {
+    await execute(
+      `INSERT INTO canonical_variant_grapes (canonical_variant_id, grape_variety_id, position)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [variant.id, grapeId, pos + 1],
+    );
+    await execute(
+      `INSERT INTO product_family_grapes (product_family_id, grape_variety_id, position)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [family.id, grapeId, pos + 1],
+    );
+  }
 
   // A kiindulo listing azonnal a sajat klaszterehez kapcsolodik.
   // Ez `proposed` kapcsolat - NEM automatikusan verified.

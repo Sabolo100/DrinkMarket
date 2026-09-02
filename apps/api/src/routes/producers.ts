@@ -36,6 +36,7 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
     const items = await query(
       `SELECT p.id::text, p.canonical_name, p.status, p.kind, p.fuzzy_blocked,
               p.candidate_score, p.evidence, p.proposed_at, p.decided_at,
+              p.applied_at, p.applied_listing_count,
               (SELECT count(*)::int FROM source_listings sl WHERE sl.producer_id = p.id) AS linked_listings
          FROM producers p
          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
@@ -48,9 +49,18 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
       `SELECT status, count(*)::int AS count FROM producers GROUP BY status`,
     );
 
+    // Jovahagyva, de a katalogusra meg nem alkalmazva. Ez sajat allapot: a
+    // jovahagyas onmagaban nem tolti ki a listingek termelojet, ahhoz egy
+    // ujrakinyeres kell a mar tarolt nevekbol.
+    const pending = await queryOne<{ count: number }>(
+      `SELECT count(*)::int AS count FROM producers
+        WHERE status = 'active' AND applied_at IS NULL`,
+    );
+
     return {
       items,
       counts: Object.fromEntries(counts.map((c) => [c.status, c.count])),
+      pendingApply: pending?.count ?? 0,
     };
   });
 
@@ -93,7 +103,18 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
       summary: `Boraszat jovahagyva: ${body.canonicalName ?? existing.canonical_name}`,
       correlationId: req.correlationId,
     });
-    return { ok: true };
+
+    // A jovahagyas onmagaban nem valtoztat a mar begyujtott terméklistán:
+    // a listingek `producer_id`-ja uresen marad, amig valaki ujra ki nem
+    // nyeri az azonossagot a tarolt nevbol. Ezt inditjuk el itt - ujracrawl
+    // nelkul, mert a nevhez mar nem kell a webshop.
+    //
+    // A kozos idempotencia-kulcs es a rovid kesleltetes szandekos: aki
+    // egymas utan hagy jova tiz boraszatot, annak EGY futas dolgozza fel
+    // mind a tizet, nem tiz kulon.
+    const apply = await enqueueApply(config, req.correlationId);
+
+    return { ok: true, apply };
   });
 
   // ── Elutasitas ───────────────────────────────────────────────────────────
@@ -154,6 +175,58 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
     return { ok: true };
   });
 
+  // ── A jovahagyasok hatalyba leptetese ────────────────────────────────────
+  //
+  // Ket mod: alapbol csak a meg nem alkalmazott jovahagyasokra fut, a
+  // `rebuildAll` viszont minden aktiv boraszatra ujra. Az utobbi akkor kell,
+  // ha kozben bovult a fajta- vagy dulo-szotar.
+  app.post('/producers/apply', async (req) => {
+    const actor = requireAtLeast(req.user, 'catalog_manager');
+    const body = z.object({
+      rebuildAll: z.boolean().optional(),
+      shopKey: z.string().optional(),
+      dryRun: z.boolean().optional(),
+    }).parse(req.body ?? {});
+
+    const active = await queryOne<{ count: number }>(
+      `SELECT count(*)::int AS count FROM producers WHERE status = 'active'`,
+    );
+    if ((active?.count ?? 0) === 0) {
+      throw new AppError(
+        'NO_ACTIVE_PRODUCERS',
+        'Meg egyetlen boraszat sincs jovahagyva - nincs mit alkalmazni.',
+        409,
+      );
+    }
+
+    const job = await enqueue({
+      redisUrl: config.REDIS_URL,
+      queue: 'product-ingest',
+      name: 'reextract-listings',
+      payload: {
+        ...(body.rebuildAll ? { all: true } : { pendingOnly: true }),
+        ...(body.shopKey ? { shopKey: body.shopKey } : {}),
+        ...(body.dryRun ? { dryRun: true } : {}),
+        actorUserId: actor.id,
+      },
+      idempotencyKey: body.rebuildAll ? 'reextract-all' : 'reextract-pending',
+      priority: JOB_PRIORITY['product-ingest'] ?? 50,
+      correlationId: req.correlationId,
+    });
+    await audit({
+      actorUserId: actor.id, action: 'producer.apply_triggered', entityType: 'producer',
+      entityId: null,
+      summary: body.rebuildAll
+        ? 'Ujrakinyeres minden jovahagyott boraszatra'
+        : 'Ujrakinyeres a meg nem alkalmazott jovahagyasokra',
+      correlationId: req.correlationId,
+    });
+    return {
+      accepted: true, jobId: job.jobId, deduped: job.deduped,
+      state: job.state, waiting: job.waiting,
+    };
+  });
+
   // ── Banyaszat inditasa ───────────────────────────────────────────────────
   app.post('/producers/mine', async (req) => {
     const actor = requireAtLeast(req.user, 'catalog_manager');
@@ -180,4 +253,28 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
       state: job.state, waiting: job.waiting,
     };
   });
+}
+
+/**
+ * Az ujrakinyeres sorbaallitasa a jovahagyas utan.
+ *
+ * A kozos `reextract-pending` kulcs miatt egy varakozo futas elnyeli a
+ * kovetkezo jovahagyast is. Ha viszont mar FUT, az uj jovahagyas kimaradna
+ * belole - ezt a processzor sajat farok-ellenorzese potolja.
+ */
+async function enqueueApply(
+  config: AppConfig,
+  correlationId: string,
+): Promise<{ jobId: string; deduped: boolean }> {
+  const job = await enqueue({
+    redisUrl: config.REDIS_URL,
+    queue: 'product-ingest',
+    name: 'reextract-listings',
+    payload: { pendingOnly: true },
+    idempotencyKey: 'reextract-pending',
+    priority: JOB_PRIORITY['product-ingest'] ?? 50,
+    delayMs: 20_000,
+    correlationId,
+  });
+  return { jobId: job.jobId, deduped: job.deduped };
 }

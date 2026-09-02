@@ -44,6 +44,11 @@ export interface VariantRow {
   colour: string | null;
   origin_country: string | null;
   grape_varieties: string[];
+  wine_style_id: string | null;
+  vineyard_id: string | null;
+  wine_region_id: string | null;
+  grape_signature: string | null;
+  grape_ids: string[] | null;
   category_key: string;
   category_identity_profile: Record<string, unknown>;
   category_comparison_policy: Record<string, unknown>;
@@ -54,6 +59,8 @@ export const VARIANT_QUERY = `
          cv.age_statement_years, cv.volume_ml, cv.pack_count, cv.packaging_type, cv.edition,
          cv.cask_finish, cv.dosage_style, cv.sweetness, cv.puttony, cv.abv_percent,
          cv.gtin_normalized, cv.identity_profile_json, cv.comparison_policy_json,
+         cv.wine_style_id, cv.vineyard_id, cv.wine_region_id, cv.grape_signature,
+         cvg.ids AS grape_ids,
          pf.producer_id, pf.brand_id, pf.product_line, pf.region, pf.colour,
          pf.origin_country, pf.grape_varieties,
          pr.canonical_name AS producer_name, br.canonical_name AS brand_name,
@@ -65,6 +72,11 @@ export const VARIANT_QUERY = `
     JOIN product_categories pc ON pc.id = pf.category_id
     LEFT JOIN producers pr ON pr.id = pf.producer_id
     LEFT JOIN brands br ON br.id = pf.brand_id
+    LEFT JOIN LATERAL (
+      SELECT array_agg(g.grape_variety_id::text) AS ids
+        FROM canonical_variant_grapes g
+       WHERE g.canonical_variant_id = cv.id
+    ) cvg ON true
 `;
 
 export function variantIdentity(row: VariantRow): IdentityFields {
@@ -93,6 +105,11 @@ export function variantIdentity(row: VariantRow): IdentityFields {
     countryCode: row.origin_country,
     grapeVarieties: row.grape_varieties ?? [],
     gtin: row.gtin_normalized,
+    grapeVarietyIds: row.grape_ids ?? [],
+    grapeSignature: row.grape_signature,
+    wineStyleId: row.wine_style_id,
+    vineyardId: row.vineyard_id,
+    wineRegionId: row.wine_region_id,
   };
 }
 
@@ -480,6 +497,9 @@ export async function evaluateListingForClustering(opts: {
     packaging_type: string; edition: string | null; cask_finish: string | null;
     dosage_style: string | null; puttony: number | null; abv_percent: number | null;
     gtin_normalized: string | null; producer_name: string | null; brand_name: string | null;
+    colour: string | null; region: string | null; grape_varieties: string[] | null;
+    wine_style_id: string | null; vineyard_id: string | null; wine_region_id: string | null;
+    grape_signature: string | null; grape_ids: string[] | null;
   }>(
     `SELECT sl.id, sl.shop_id, s.key AS shop_key, sl.raw_name, sl.normalized_name,
             sl.identity_hash, sl.extraction_quality, sl.canonical_url,
@@ -487,12 +507,20 @@ export async function evaluateListingForClustering(opts: {
             sl.vintage_value, sl.vintage_status, sl.age_statement_years, sl.volume_ml,
             sl.pack_count, sl.packaging_type, sl.edition, sl.cask_finish, sl.dosage_style,
             sl.puttony, sl.abv_percent, sl.gtin_normalized,
+            sl.colour, sl.region, sl.grape_varieties,
+            sl.wine_style_id, sl.vineyard_id, sl.wine_region_id, sl.grape_signature,
+            slg.ids AS grape_ids,
             pr.canonical_name AS producer_name, br.canonical_name AS brand_name
        FROM source_listings sl
        JOIN shops s ON s.id = sl.shop_id
        LEFT JOIN product_categories pc ON pc.id = sl.category_id
        LEFT JOIN producers pr ON pr.id = sl.producer_id
        LEFT JOIN brands br ON br.id = sl.brand_id
+       LEFT JOIN LATERAL (
+         SELECT array_agg(g.grape_variety_id::text) AS ids
+           FROM source_listing_grapes g
+          WHERE g.source_listing_id = sl.id
+       ) slg ON true
       WHERE sl.id = $1`,
     [opts.listingId],
   );
@@ -514,6 +542,13 @@ export async function evaluateListingForClustering(opts: {
     edition: listing.edition, caskFinish: listing.cask_finish,
     dosageStyle: listing.dosage_style, puttony: listing.puttony,
     abvPercent: listing.abv_percent, gtin: listing.gtin_normalized,
+    colour: listing.colour, region: listing.region,
+    grapeVarieties: listing.grape_varieties ?? [],
+    grapeVarietyIds: listing.grape_ids ?? [],
+    grapeSignature: listing.grape_signature,
+    wineStyleId: listing.wine_style_id,
+    vineyardId: listing.vineyard_id,
+    wineRegionId: listing.wine_region_id,
   };
 
   // Kanonikus valtozat-jeloltek

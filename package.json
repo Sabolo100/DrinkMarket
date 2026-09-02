@@ -33,7 +33,9 @@
     "golden": "tsx --tsconfig tsconfig.dev.json tests/golden/evaluate.ts",
     "seed:demo": "tsx --tsconfig tsconfig.dev.json tests/e2e/seed-demo.ts",
     "test:e2e": "vitest run tests/e2e",
-    "wine:report": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-report.ts"
+    "wine:report": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-report.ts",
+    "wine:apply": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-apply-report.ts",
+    "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

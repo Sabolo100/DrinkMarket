@@ -26,11 +26,23 @@ function norm(v: unknown): string {
 /**
  * A strukturalt identitasmezokbol szamolt hash. Ez donti el, hogy egy korabban
  * parositott listing ugyanaz a termek maradt-e.
+ *
+ * v3: a bor azonossaghordozoi is bekerultek. A v2 nem ismerte oket, mert
+ * akkor meg nem is letezett strukturalt fajtaadat - emiatt viszont egy
+ * "Sauska Kekfrankos 2019" es egy "Sauska Olaszrizling 2019" AZONOS
+ * lenyomatot kapott: ket kulonbozo bor, egy ujjlenyomat. A
+ * `match_relations.identity_hash_at_decision` igy nem tudta rogziteni, MIT
+ * hagyott jova az ember.
+ *
+ * A verziojel emelese szandekos: a tarolt regi hashek nem egyeznek az uj
+ * szamitassal, de a rendszer sehol nem hasonlit tarolt es frissen szamolt
+ * hasht - az elsodrodast a `detectDrift()` mezonkent nezi. A tarolt ertek a
+ * kovetkezo irasnal magatol felfrissul.
  */
 export function identityHash(input: FingerprintInput): string {
   const i = input.identity;
   const parts = [
-    'v2',
+    'v3',
     norm(input.platformProductId),
     norm(input.platformVariantId),
     norm(i.producer ?? i.brand),
@@ -47,6 +59,9 @@ export function identityHash(input: FingerprintInput): string {
     norm(i.dosageStyle),
     norm(i.puttony),
     norm(i.gtin),
+    norm(i.grapeSignature),
+    norm(i.wineStyleId),
+    norm(i.vineyardId),
   ];
   return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 40);
 }

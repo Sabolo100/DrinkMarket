@@ -23,6 +23,7 @@ export function ProducerActions({ id, name, personName, csrfToken }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const [fuzzyBlocked, setFuzzyBlocked] = useState(personName);
@@ -39,6 +40,7 @@ export function ProducerActions({ id, name, personName, csrfToken }: Props) {
         const data = await res.json().catch(() => null);
         setError(data?.error?.message ?? 'A művelet nem sikerült.');
       } else {
+        if (key === 'approve') setDone('jóváhagyva · újrakinyerés indul');
         router.refresh();
       }
     } catch {
@@ -50,6 +52,7 @@ export function ProducerActions({ id, name, personName, csrfToken }: Props) {
   return (
     <div className="stack-2" style={{ minWidth: 230 }}>
       {error && <span className="freshness" style={{ color: 'var(--rust)' }}>{error}</span>}
+      {done && <span className="freshness">{done}</span>}
 
       {editing ? (
         <input
@@ -144,6 +147,57 @@ export function MineButton({ csrfToken }: { csrfToken: string }) {
       <button className="btn btn-sm" disabled={busy} onClick={run}>
         {busy ? '…' : 'Jelöltek frissítése'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * A jóváhagyások hatályba léptetése a már begyűjtött terméklistán.
+ *
+ * A jóváhagyás után ez magától elindul; a gomb a kézi ismétlésre van — ha a
+ * futás megakadt, vagy ha közben bővült a fajta- és dűlőszótár, és emiatt
+ * érdemes az egészet újra végigfuttatni.
+ */
+export function ApplyButton({ csrfToken, pending }: { csrfToken: string; pending: number }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run(rebuildAll: boolean) {
+    setBusy(rebuildAll ? 'all' : 'pending');
+    setMessage(null);
+    try {
+      const res = await fetch('/api/v1/producers/apply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+        body: JSON.stringify({ rebuildAll }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) setMessage(data?.error?.message ?? 'Az újrakinyerés nem indult el.');
+      else {
+        setMessage(data?.deduped
+          ? 'Már fut egy újrakinyerés — ez a kérés ahhoz csatlakozott.'
+          : 'Újrakinyerés sorba állítva. A találatok pár perc múlva jelennek meg.');
+        setTimeout(() => router.refresh(), 5000);
+      }
+    } catch {
+      setMessage('A kiszolgáló nem elérhető.');
+    }
+    setBusy(null);
+  }
+
+  return (
+    <div className="row-tight" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <button className="btn btn-sm" disabled={busy !== null} onClick={() => run(false)}>
+        {busy === 'pending' ? '…' : `Alkalmazás most (${pending})`}
+      </button>
+      <button
+        className="btn btn-sm btn-ghost" disabled={busy !== null} onClick={() => run(true)}
+        title="Minden jóváhagyott borászatra újra lefuttatja a névfelbontást. Akkor kell, ha bővült a fajta- vagy dűlőszótár."
+      >
+        {busy === 'all' ? '…' : 'Teljes újrakinyerés'}
+      </button>
+      {message && <span className="freshness">{message}</span>}
     </div>
   );
 }

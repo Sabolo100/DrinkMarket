@@ -359,7 +359,9 @@ export async function generateVariantCandidates(
     SELECT cv.id, cv.canonical_display_name, cv.vintage_value, cv.vintage_status,
            cv.age_statement_years, cv.volume_ml, cv.pack_count, cv.packaging_type,
            cv.edition, cv.cask_finish, cv.dosage_style, cv.puttony, cv.abv_percent,
-           cv.gtin_normalized, pf.producer_id, pf.brand_id, pf.product_line, pf.region,
+           cv.gtin_normalized, cv.wine_style_id, cv.vineyard_id, cv.wine_region_id,
+           cv.grape_signature, cvg.ids AS grape_ids,
+           pf.producer_id, pf.brand_id, pf.product_line, pf.region,
            pf.colour, pf.grape_varieties, pf.origin_country,
            pc.key AS category_key, pr.canonical_name AS producer_name, br.canonical_name AS brand_name
       FROM canonical_variants cv
@@ -367,6 +369,11 @@ export async function generateVariantCandidates(
       JOIN product_categories pc ON pc.id = pf.category_id
       LEFT JOIN producers pr ON pr.id = pf.producer_id
       LEFT JOIN brands br ON br.id = pf.brand_id
+      LEFT JOIN LATERAL (
+        SELECT array_agg(g.grape_variety_id::text) AS ids
+          FROM canonical_variant_grapes g
+         WHERE g.canonical_variant_id = cv.id
+      ) cvg ON true
      WHERE cv.status IN ('active','proposed')
   `;
 
@@ -380,6 +387,8 @@ export async function generateVariantCandidates(
     region: string | null; colour: string | null; grape_varieties: string[];
     origin_country: string | null; category_key: string; producer_name: string | null;
     brand_name: string | null; score?: number;
+    wine_style_id: string | null; vineyard_id: string | null; wine_region_id: string | null;
+    grape_signature: string | null; grape_ids: string[] | null;
   }
 
   const toVariant = (r: VariantRow, score: number, channel: CandidateChannel) => ({
@@ -402,6 +411,9 @@ export async function generateVariantCandidates(
       puttony: r.puttony, abvPercent: r.abv_percent, colour: r.colour,
       region: r.region, countryCode: r.origin_country,
       grapeVarieties: r.grape_varieties ?? [], gtin: r.gtin_normalized,
+      grapeVarietyIds: r.grape_ids ?? [], grapeSignature: r.grape_signature,
+      wineStyleId: r.wine_style_id, vineyardId: r.vineyard_id,
+      wineRegionId: r.wine_region_id,
     } as IdentityFields,
   });
 
@@ -425,6 +437,21 @@ export async function generateVariantCandidates(
       );
       push(rows, 'gtin', () => 1);
     }
+  }
+
+  // Blocking: termelo + fajtalenyomat (+ evjarat). Ez a bor fo blokkolokulcsa.
+  // A kiszerelest NEM kovetelheti meg: a bornevekbol gyakran hianyzik, es
+  // enelkul ket bolt azonos bora sosem kerulne egymas mellé.
+  if (i.producerId && i.grapeSignature) {
+    const rows = await query<VariantRow>(
+      `${VARIANT_SELECT}
+         AND pf.producer_id = $1
+         AND cv.grape_signature = $2
+         AND ($3::int IS NULL OR cv.vintage_value IS NULL OR cv.vintage_value = $3)
+       LIMIT ${topN}`,
+      [i.producerId, i.grapeSignature, i.vintageValue],
+    );
+    push(rows, 'catalog_block', () => 0.95);
   }
 
   // Blocking: termelo/marka + kiszereles (+ evjarat)

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { apiSafe, currentSession, ago } from '@/lib/api';
-import { ProducerActions, MineButton } from './ProducerActions';
+import { ProducerActions, MineButton, ApplyButton } from './ProducerActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +27,8 @@ interface Producer {
   } | null;
   proposed_at: string | null;
   decided_at: string | null;
+  applied_at: string | null;
+  applied_listing_count: number;
   linked_listings: number;
 }
 
@@ -47,8 +49,8 @@ export default async function ProducersPage({
   if (search) qs.set('search', search);
 
   const [data, session] = await Promise.all([
-    apiSafe<{ items: Producer[]; counts: Record<string, number> }>(
-      `/producers?${qs}`, { items: [], counts: {} },
+    apiSafe<{ items: Producer[]; counts: Record<string, number>; pendingApply: number }>(
+      `/producers?${qs}`, { items: [], counts: {}, pendingApply: 0 },
     ),
     currentSession(),
   ]);
@@ -72,6 +74,22 @@ export default async function ProducersPage({
             terméknevéből állít elő javaslatokat: leveszi a szőlőfajtát, a bortípust, a
             borvidéket és az évjáratot, és ami a név elején marad, azt kínálja fel.
           </p>
+        </div>
+      )}
+
+      {data.pendingApply > 0 && (
+        <div className="callout" style={{ marginBottom: 16 }}>
+          <p className="label" style={{ marginBottom: 4 }}>
+            {data.pendingApply} jóváhagyott borászat még nem hatott a katalógusra
+          </p>
+          <p style={{ margin: '0 0 8px' }}>
+            A jóváhagyás önmagában nem tölti ki a termékek termelőjét: azt a rendszer a
+            termék <strong>nevéből</strong> nyeri ki. Ehhez viszont nem kell újra begyűjteni
+            a webshopot — a nevek már megvannak. Az újrakinyerés a jóváhagyás után magától
+            elindul; ez a gomb csak akkor kell, ha megakadt, vagy ha közben bővült a
+            fajta- és dűlőszótár.
+          </p>
+          <ApplyButton csrfToken={csrfToken} pending={data.pendingApply} />
         </div>
       )}
 
@@ -170,8 +188,18 @@ export default async function ProducersPage({
                     <td className="freshness muted">
                       {p.status === 'active' ? 'jóváhagyva' : 'elvetve'}
                       {p.decided_at ? ` · ${ago(p.decided_at)}` : ''}
-                      {p.status === 'active' && p.linked_listings > 0 && (
-                        <div className="num">{p.linked_listings} listinghez kötve</div>
+                      {p.status === 'active' && (
+                        p.applied_at ? (
+                          <div className="num">
+                            {p.linked_listings > 0
+                              ? `${p.linked_listings} terméken felismerve`
+                              : 'alkalmazva · egy terméknév sem illeszkedett'}
+                          </div>
+                        ) : (
+                          <div className="chip chip-review" title="A jóváhagyás megtörtént, de a katalóguson még nem futott le az újrakinyerés.">
+                            még nem alkalmazva
+                          </div>
+                        )
                       )}
                     </td>
                   )}

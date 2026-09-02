@@ -11,8 +11,14 @@ import {
   DEFAULT_ANOMALY_CONFIG, detectDrift, detectPriceAnomaly, selectComparablePrice,
   type AnomalyConfig,
 } from '@radovin/domain';
+import { identityHash, parseWineName } from '@radovin/domain';
 import { logger } from '@radovin/observability';
 import type { IdentityFields, ComparisonPolicy } from '@radovin/contracts';
+import { loadWineColoursCached, loadWineVocabularyCached, shopSegment } from './wine-vocab.js';
+import { wineSlotPatch } from './wine-apply.js';
+
+/** A borszotar csak ezekre a boltokra ertelmezheto. */
+const WINE_SEGMENTS = new Set(['wine', 'mixed']);
 
 export interface PersistResult {
   listingId: string;
@@ -144,6 +150,70 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
     const existing = existingRes.rows[0] ?? null;
     const isNew = !existing;
 
+    // ── Bor-slotok a nevbol ───────────────────────────────────────────────
+    //
+    // Ugyanaz a szabalykeszlet, mint az ujrakinyeresnel (`wineSlotPatch`), es
+    // ez nem stilus kerdese: ha a begyujtes mas eredmenyt adna ugyanarra a
+    // nevre, mint az ujrakinyeres, akkor minden kovetkezo felderites
+    // ELSODRODASNAK latna a sajat korabbi munkajat - a fajta es a tipus
+    // eltunese ket alapmezos valtozas, ami `product_changed` minositest, es
+    // ezzel ARPUBLIKALASI TILTAST valt ki. Ez a nehany sor tartja egyben a
+    // ket utvonalat.
+    const wineGrapeIds: string[] = [];
+    let wineParsed = false;
+    // A kinyeres kategoriaja az elsodleges; ha az nincs, es a nev a
+    // BORSZOTARBOL oldodott fel, akkor a `wine` kategoria bizonyitott.
+    // A kategoria hozza magaval az identitasprofilt, es a bor profilja az,
+    // ami szerint a fantazianev hianyozhat.
+    let effectiveCategoryId = opts.categoryId ?? existing?.category_id ?? null;
+    if (WINE_SEGMENTS.has((await shopSegment(shopId)) ?? '')) {
+      const { vocab } = await loadWineVocabularyCached();
+      if (vocab.size > 0) {
+        const parsed = parseWineName(listing.rawName, vocab, {
+          producerId: listing.identity.producerId ?? existing?.producer_id ?? null,
+        });
+        const colours = await loadWineColoursCached();
+        const patch = wineSlotPatch(parsed, {
+          producerId: listing.identity.producerId,
+          producerName: listing.identity.producer,
+          vintageValue: listing.identity.vintageValue,
+          vintageStatus: listing.identity.vintageStatus,
+          colour: listing.identity.colour,
+        }, colours);
+
+        const sig = await client.query<{ signature: string | null }>(
+          'SELECT rv_grape_signature($1::uuid[]) AS signature', [patch.grapeIds]);
+
+        listing.identity.producerId = patch.producerId;
+        listing.identity.producer = patch.producerName;
+        listing.identity.wineStyleId = patch.wineStyleId;
+        listing.identity.wineStyle = patch.wineStyleName;
+        listing.identity.vineyardId = patch.vineyardId;
+        listing.identity.vineyard = patch.vineyardName;
+        listing.identity.wineRegionId = patch.wineRegionId;
+        listing.identity.grapeVarietyIds = patch.grapeIds;
+        listing.identity.grapeVarieties = patch.grapeNames;
+        listing.identity.grapeSignature = sig.rows[0]?.signature ?? null;
+        listing.identity.expression = patch.expression;
+        listing.identity.vintageValue = patch.vintageValue;
+        listing.identity.vintageStatus = patch.vintageStatus as typeof listing.identity.vintageStatus;
+        listing.identity.colour = patch.colour;
+        wineGrapeIds.push(...patch.grapeIds);
+        wineParsed = true;
+        if (!effectiveCategoryId && parsed.producer
+            && (parsed.grapes.length > 0 || parsed.style)) {
+          effectiveCategoryId = colours.wineCategoryId;
+        }
+
+        // Az azonossag valtozott, tehat a lenyomat is ujraszamolando.
+        listing.identityHash = identityHash({
+          platformProductId: listing.platformProductId ?? null,
+          platformVariantId: listing.platformVariantId ?? null,
+          identity: listing.identity,
+        });
+      }
+    }
+
     // ── Drift-detektalas (spec 17.2, 17.3) ────────────────────────────────
     let driftSeverity: PersistResult['driftSeverity'] = 'none';
     let driftMessage: string | null = null;
@@ -174,7 +244,7 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
       listing.imageUrl ?? null,
       listing.identity.producerId ?? null,
       listing.identity.brandId ?? null,
-      opts.categoryId ?? null,
+      effectiveCategoryId,
       listing.identity.expression ?? null,
       listing.identity.vintageValue ?? null,
       listing.identity.vintageStatus,
@@ -202,6 +272,10 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
       listing.identityHash,
       listing.contentHash,
       listing.availabilityStatus,
+      listing.identity.wineStyleId ?? null,
+      listing.identity.vineyardId ?? null,
+      listing.identity.wineRegionId ?? null,
+      listing.identity.grapeSignature ?? null,
     ];
 
     let listingId: string;
@@ -225,12 +299,14 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
            extractor_key = $38, extractor_version = $39, parse_warnings = $40::jsonb,
            source_fingerprint = $41, identity_hash = $42, content_hash = $43,
            availability_status = $44,
+           wine_style_id = $45, vineyard_id = $46, wine_region_id = $47,
+           grape_signature = $48,
            listing_status = 'active', last_seen_at = now(), last_checked_at = now(),
            last_successful_extract_at = now(), consecutive_failures = 0, missing_since = NULL,
-           cluster_status = CASE WHEN $45 = 'product_changed' THEN 'drifted' ELSE cluster_status END
+           cluster_status = CASE WHEN $49 = 'product_changed' THEN 'drifted' ELSE cluster_status END
          -- A shop_id feltetel egyszerre vedelem (nem irhatunk at masik webshop
          -- listingjet) es tipusinformacio a $1 parameterhez.
-         WHERE id = $46 AND shop_id = $1`,
+         WHERE id = $50 AND shop_id = $1`,
         [...listingParams, driftSeverity, existing.id],
       );
       listingId = existing.id;
@@ -245,15 +321,38 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
             puttony, abv_percent, colour, region, country_code, grape_varieties,
             evidence, extraction_quality, extractor_key, extractor_version, parse_warnings,
             source_fingerprint, identity_hash, content_hash, availability_status,
+            wine_style_id, vineyard_id, wine_region_id, grape_signature,
             listing_status, cluster_status, last_checked_at, last_successful_extract_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,
                  $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-                 $36::jsonb,$37,$38,$39,$40::jsonb,$41,$42,$43,$44,
+                 $36::jsonb,$37,$38,$39,$40::jsonb,$41,$42,$43,$44,$45,$46,$47,$48,
                  'active','unclustered', now(), now())
          RETURNING id`,
         listingParams,
       );
       listingId = inserted.rows[0]!.id;
+    }
+
+    // ── Fajta-kapcsolotabla ───────────────────────────────────────────────
+    // A `grape_varieties` szovegtomb csak gyorsitas; az azonossag az
+    // azonositokon dol el, ezert a kapcsolotablat is szinkronban tartjuk.
+    if (wineGrapeIds.length) {
+      await client.query(
+        `DELETE FROM source_listing_grapes
+          WHERE source_listing_id = $1 AND grape_variety_id <> ALL($2::uuid[])`,
+        [listingId, wineGrapeIds],
+      );
+      for (const [pos, grapeId] of wineGrapeIds.entries()) {
+        await client.query(
+          `INSERT INTO source_listing_grapes (source_listing_id, grape_variety_id, position)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (source_listing_id, grape_variety_id) DO UPDATE SET position = EXCLUDED.position`,
+          [listingId, grapeId, pos + 1],
+        );
+      }
+    } else if (wineParsed && !isNew) {
+      await client.query(
+        'DELETE FROM source_listing_grapes WHERE source_listing_id = $1', [listingId]);
     }
 
     // ── Snapshot ──────────────────────────────────────────────────────────
