@@ -10,6 +10,7 @@ import { dashboardRoutes } from './dashboard.js';
 import { importRoutes } from './imports.js';
 import { settingsRoutes } from './settings.js';
 import { searchRoutes } from './search.js';
+import { producerRoutes } from './producers.js';
 
 export async function registerRoutes(app: FastifyInstance, config: AppConfig): Promise<void> {
   await app.register(async (api) => {
@@ -83,5 +84,6 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
     await dashboardRoutes(api, config);
     await importRoutes(api, config);
     await settingsRoutes(api, config);
+    await producerRoutes(api, config);
   }, { prefix: '/api/v1' });
 }

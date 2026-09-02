@@ -55,6 +55,7 @@ export function Shell({ user, csrfToken, shops, counts, children }: Props) {
             </NavLink>
             <NavLink href="/nem-talalt" count={counts.unmatched}>Nem talált termékek</NavLink>
             <NavLink href="/termektar" count={counts.unclustered}>Webshop-terméktár</NavLink>
+            <NavLink href="/boraszatok">Borászatok</NavLink>
           </div>
 
           <div className="nav-group">

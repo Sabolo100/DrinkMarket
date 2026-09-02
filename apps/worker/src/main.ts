@@ -16,6 +16,7 @@ import { addMetricSink, configureLogger, logger } from '@radovin/observability';
 import { loadWorkerConfig, type WorkerConfig } from './config.js';
 import { closeWorkerQueues, workerRedis, type QueueName } from './lib/queue-client.js';
 import { processDiscovery, processFetchUrl, processHealthCheck } from './processors/discovery.js';
+import { processProposeProducers } from './processors/producer-propose.js';
 import {
   processClusterListing, processPromoteListing, processSearchAllShops, processUnmatchedResearch,
 } from './processors/matching.js';
@@ -49,6 +50,7 @@ const ROUTES: Record<string, Record<string, Handler>> = {
   },
   'product-ingest': {
     'promote-listing-to-variant': processPromoteListing as Handler,
+    'propose-producers': processProposeProducers as Handler,
   },
   'unmatched-research': {
     research: processUnmatchedResearch as Handler,
