@@ -188,3 +188,51 @@ describe('a valos meres szemetje - regresszio', () => {
     expect(names(out)).not.toContain('chateau cos d');
   });
 });
+
+describe('atfedo nevvaltozatok feloldasa', () => {
+  /** N listing ugyanabbol a maradekbol, adott boltokban. */
+  function n(times: number, residue: string, shops: string[], rawName: string): MineInput[] {
+    return Array.from({ length: times }, (_, i) =>
+      listing(shops[i % shops.length]!, rawName, residue));
+  }
+
+  it('azonos darabszamnal a ROVIDEBB felesleges', () => {
+    // A `moet` 58 elofordulassal szerepelt, a `moet chandon` szinten 58-cal:
+    // a rovid MINDIG a hosszu reszekent fordult elo, tehat onmagaban semmit
+    // nem azonosit.
+    const inputs = n(8, 'moet chandon', ['a', 'b'], 'Moët & Chandon');
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).toContain('moet chandon');
+    expect(names(out)).not.toContain('moet');
+  });
+
+  it('a ritkabb hosszabb valtozatot NEM dobjuk el - ember dont', () => {
+    // Kezenfekvo lenne: "Villa Sandahl" 39 tetelen, "Villa Sandahl Birdie"
+    // 3-on, tehat az utobbi termeknev. De ez a mintazat SZERKEZETILEG AZONOS
+    // azzal, amikor egy rovid elotag tobb kulon birtokot fog ossze
+    // (chateau haut = haut brion + haut bailly) - ott mindketto valodi
+    // boraszat. Szamokbol a ket eset nem kulonboztetheto meg.
+    const inputs = [
+      ...n(20, 'villa sandahl valami', ['a', 'b'], 'Villa Sandahl Rajnai Rizling'),
+      ...n(3, 'villa sandahl birdie', ['a', 'b'], 'Villa Sandahl Birdie Num Num'),
+    ];
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).toContain('villa sandahl');
+    expect(names(out)).toContain('villa sandahl birdie');
+  });
+
+  it('a tobb birtokot osszefogo elotag EGYIK birtokat sem tunteti el', () => {
+    // Ez a regresszio: egy korabbi valtozat a "chateau haut bailly"-t
+    // kitorolte, mert a "chateau haut" osszegzett darabszamahoz kepest
+    // ritkanak latszott. Valodi boraszatot vesztettunk volna.
+    const inputs = [
+      ...n(13, 'chateau haut brion', ['a', 'b'], 'Chateau Haut Brion'),
+      ...n(12, 'chateau haut bailly', ['a', 'b'], 'Chateau Haut Bailly'),
+    ];
+    const out = mineProducerCandidates(inputs, { minCount: 2, minShops: 2 });
+    expect(names(out)).toEqual(expect.arrayContaining([
+      'chateau haut brion', 'chateau haut bailly',
+    ]));
+  });
+
+});

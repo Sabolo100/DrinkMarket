@@ -225,6 +225,55 @@ function candidatesFrom(tokens: readonly string[]): Array<{ name: string; leadin
   return [...found].map(([name, f]) => ({ name, leading: f.leading, marker: f.marker }));
 }
 
+
+/** A tokenlista elo- vagy utotagja-e a masiknak? */
+function isEdgeSubsequence(short: readonly string[], long: readonly string[]): boolean {
+  if (short.length >= long.length) return false;
+  const prefix = short.every((t, i) => long[i] === t);
+  if (prefix) return true;
+  const off = long.length - short.length;
+  return short.every((t, i) => long[off + i] === t);
+}
+
+/**
+ * Atfedo nevvaltozatok feloldasa - EGYETLEN, bizonyithatoan biztonsagos
+ * szabaly szerint.
+ *
+ * A valos meresben ugyanaz a termelo tobbszor szerepelt, egymas reszekent:
+ *   moet (58) · moet chandon (58) · moet chandon brut (29)
+ *   villa sandahl (39) · villa sandahl birdie (3) · villa sandahl slow (3)
+ *
+ * A szabaly: AZONOS DARABSZAMNAL a rovidebb felesleges. Ha a `moet` MINDIG
+ * `moet chandon`-kent fordul elo, onmagaban semmit nem azonosit.
+ *
+ * Amit SZANDEKOSAN NEM teszunk: nem dobjuk el a ritkabb hosszabb valtozatot.
+ * Kezenfekvo lenne ("Villa Sandahl" 39 tetelen, "Villa Sandahl Birdie" 3-on,
+ * tehat az utobbi termeknev) - de ez a mintazat szerkezetileg AZONOS azzal,
+ * amikor egy rovid elotag tobb kulon birtokot fog ossze:
+ *
+ *   chateau haut (25) = chateau haut brion (13) + chateau haut bailly (12)
+ *
+ * Itt a "ritkabb hosszabb" mindketto VALODI boraszat. A ket eset szamokbol
+ * nem kulonboztetheto meg, es egy olyan szabaly, ami csendben kitorolhet egy
+ * valodi boraszatot, rosszabb egy kicsit hosszabb listanal. Ezt ember donti
+ * el a jovahagyaskor - eppen ezert van jovahagyas.
+ */
+function dedupeByContainment(cands: readonly ProducerCandidate[]): ProducerCandidate[] {
+  const tokens = new Map<string, string[]>();
+  for (const c of cands) tokens.set(c.name, c.name.split(' '));
+
+  const dropped = new Set<string>();
+  for (const short of cands) {
+    for (const long of cands) {
+      if (short.name === long.name) continue;
+      if (short.count !== long.count) continue;
+      if (!isEdgeSubsequence(tokens.get(short.name)!, tokens.get(long.name)!)) continue;
+      dropped.add(short.name);
+    }
+  }
+  return cands.filter((c) => !dropped.has(c.name));
+}
+
 /**
  * Boraszat-jeloltek rangsora a korpuszbol.
  *
@@ -283,6 +332,9 @@ export function mineProducerCandidates(
     });
   }
 
-  out.sort((x, y) => y.score - x.score || y.count - x.count || x.name.localeCompare(y.name));
-  return out.slice(0, limit);
+  // Az atfedo nevvaltozatokat a limit ELOTT oldjuk fel, kulonben a
+  // duplikatumok elennek a helyeket a valodi jeloltek elol.
+  const deduped = dedupeByContainment(out);
+  deduped.sort((x, y) => y.score - x.score || y.count - x.count || x.name.localeCompare(y.name));
+  return deduped.slice(0, limit);
 }
