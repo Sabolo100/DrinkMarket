@@ -227,10 +227,20 @@ async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
     }
 
     // ── 3. Nem talalt termekek ujrakeresese ─────────────────────────────
+    // A feltetel SZO SZERINT ugyanaz, mint a processzor sajat lekerdezese
+    // (`processUnmatchedResearch`). Ha a ketto eltert, a scheduler minden
+    // korben bekuldott egy jobot olyan sorokra, amiket a processzor nem is
+    // lat - a job lefutott, nulla eredmennyel, a szamlalo pedig valtozatlan
+    // maradt. Kivulrol ez pontosan ugy fest, mintha semmi nem futna.
     const pendingResearch = await query<{ count: number }>(
-      `SELECT count(*)::int AS count FROM variant_shop_status
-        WHERE next_search_at IS NOT NULL AND next_search_at <= now()
-          AND status NOT IN ('auto_verified','human_verified','suspended')`,
+      `SELECT count(*)::int AS count
+         FROM variant_shop_status vss
+         JOIN shops s ON s.id = vss.shop_id
+         JOIN canonical_variants cv ON cv.id = vss.canonical_variant_id
+        WHERE vss.next_search_at IS NOT NULL AND vss.next_search_at <= now()
+          AND s.active AND NOT s.policy_disabled
+          AND cv.status IN ('active','proposed')
+          AND vss.status NOT IN ('auto_verified','human_verified','suspended')`,
     );
     if ((pendingResearch[0]?.count ?? 0) > 0) {
       const ok = await schedule({

@@ -80,7 +80,14 @@ export default async function ProducersPage({
       <PageHead
         title="Borászatok"
         lede="A termelő a bor azonosságának kötelező eleme. Amíg üres, a borpárosítás nem tud elindulni."
-        actions={<MineButton csrfToken={csrfToken} />}
+        actions={
+          <div className="row-tight" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link href="/boraszatok/osszevonas" className="btn btn-sm btn-ghost">
+              Összevonás
+            </Link>
+            <MineButton csrfToken={csrfToken} />
+          </div>
+        }
       />
 
       {total === 0 && (

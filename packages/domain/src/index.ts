@@ -6,6 +6,7 @@ export * from './identity/profile.js';
 export * from './identity/extract.js';
 export * from './identity/wine-parser.js';
 export * from './vocabulary/producer-mine.js';
+export * from './vocabulary/producer-merge.js';
 export * from './matching/comparators.js';
 export * from './matching/engine.js';
 export * from './candidates/query-plan.js';

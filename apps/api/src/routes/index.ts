@@ -12,6 +12,7 @@ import { importRoutes } from './imports.js';
 import { settingsRoutes } from './settings.js';
 import { searchRoutes } from './search.js';
 import { producerRoutes } from './producers.js';
+import { producerMergeRoutes } from './producer-merge.js';
 
 export async function registerRoutes(app: FastifyInstance, config: AppConfig): Promise<void> {
   await app.register(async (api) => {
@@ -87,5 +88,6 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
     await importRoutes(api, config);
     await settingsRoutes(api, config);
     await producerRoutes(api, config);
+    await producerMergeRoutes(api, config);
   }, { prefix: '/api/v1' });
 }
