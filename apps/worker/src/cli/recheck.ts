@@ -59,15 +59,33 @@ async function main(): Promise<void> {
   // A bolt egeszsegi allapota szamit: ha nem `ok` es nem `unknown`, akkor a
   // "nincs talalat" nem allithato rola - az ilyen parok `source_unhealthy`
   // allapotban maradnak, barmilyen jo is az azonossag.
-  const health = await query<{ health_status: string; count: number }>(
-    `SELECT health_status, count(*)::int AS count
-       FROM shops WHERE active AND NOT policy_disabled
-      GROUP BY 1 ORDER BY 2 DESC`,
+  const health = await query<{ health_status: string; aktiv: boolean; count: number }>(
+    `SELECT health_status, (active AND NOT policy_disabled) AS aktiv,
+            count(*)::int AS count
+       FROM shops GROUP BY 1,2 ORDER BY 3 DESC`,
   );
-  console.log('\n  Webshopok allapota:');
+  const aktivDb = health.filter((h) => h.aktiv).reduce((a, h) => a + h.count, 0);
+
+  console.log('\n  Webshopok:');
   for (const h of health) {
-    const jelzes = (h.health_status === 'ok' || h.health_status === 'unknown') ? '' : '   <- ezek kimaradnak';
-    console.log(`    ${h.health_status.padEnd(20)} ${String(h.count).padStart(3)}${jelzes}`);
+    const cimke = `${h.health_status}${h.aktiv ? '' : ' (INAKTIV)'}`;
+    const jelzes = !h.aktiv
+      ? '   <- kimarad mindenbol'
+      : (h.health_status === 'ok' || h.health_status === 'unknown')
+        ? ''
+        : '   <- ebbol nem lehet "nincs talalat"';
+    console.log(`    ${cimke.padEnd(26)} ${String(h.count).padStart(3)}${jelzes}`);
+  }
+
+  // Ures lista helyett kimondjuk. Egy nema ures blokk pont ott hallgat, ahol
+  // a legtobbet szamitana: aktiv bolt nelkul az ar-osszehasonlitas SOSEM
+  // telik meg, mert a publikalas `s.active`-ot kovetel - es ugyanez all a
+  // sopresre es a bolt-kozi keresesre is.
+  if (aktivDb === 0) {
+    console.log('\n  FIGYELEM: EGYETLEN AKTIV WEBSHOP SINCS.');
+    console.log('  Amig ez igy van, az ar-osszehasonlitas nem tud megtelni, a');
+    console.log('  sopres nem talal munkat, es a bolt-kozi kereses sem indul el.');
+    console.log('  A boltokat a webalkalmazas Webshopok oldalan lehet aktivalni.');
   }
 
   console.log(`\n  osszesen ${total} sor, ebbol ${pending} varna meg a menetrend szerint`);

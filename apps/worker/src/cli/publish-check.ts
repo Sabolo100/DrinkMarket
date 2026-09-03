@@ -52,7 +52,22 @@ async function main(): Promise<void> {
   initDb({ connectionString: url, max: 4, applicationName: 'radovin-publish-check' });
 
   console.log('\n══ MIERT URES AZ AR-OSSZEHASONLITAS? ════════════════════════════════════\n');
-  console.log('  A publikalas tolcsere - hol esik le a szam:\n');
+
+  // A leggyakoribb es legkonnyebben atsiklott ok. A publikalas `s.active`-ot
+  // kovetel, tehat egy inaktiv bolt ajanlata sosem kerul a piacra - barmennyi
+  // igazolt parositas legyen is mogotte.
+  const shops = await query<{ osszes: number; aktiv: number }>(
+    `SELECT count(*)::int AS osszes,
+            count(*) FILTER (WHERE active AND NOT policy_disabled)::int AS aktiv
+       FROM shops`,
+  );
+  console.log(`  webshop: ${shops[0]?.osszes ?? 0}, ebbol aktiv: ${shops[0]?.aktiv ?? 0}`);
+  if ((shops[0]?.aktiv ?? 0) === 0) {
+    console.log('\n  EGYETLEN AKTIV WEBSHOP SINCS - a publikalas ezert ures.');
+    console.log('  A boltokat a webalkalmazas Webshopok oldalan lehet aktivalni.');
+  }
+
+  console.log('\n  A publikalas tolcsere - hol esik le a szam:\n');
 
   const acc: string[] = [];
   let last = -1;
