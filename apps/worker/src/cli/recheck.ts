@@ -56,6 +56,20 @@ async function main(): Promise<void> {
     `SELECT count(*)::int AS count FROM review_cases WHERE status = 'open'`,
   );
 
+  // A bolt egeszsegi allapota szamit: ha nem `ok` es nem `unknown`, akkor a
+  // "nincs talalat" nem allithato rola - az ilyen parok `source_unhealthy`
+  // allapotban maradnak, barmilyen jo is az azonossag.
+  const health = await query<{ health_status: string; count: number }>(
+    `SELECT health_status, count(*)::int AS count
+       FROM shops WHERE active AND NOT policy_disabled
+      GROUP BY 1 ORDER BY 2 DESC`,
+  );
+  console.log('\n  Webshopok allapota:');
+  for (const h of health) {
+    const jelzes = (h.health_status === 'ok' || h.health_status === 'unknown') ? '' : '   <- ezek kimaradnak';
+    console.log(`    ${h.health_status.padEnd(20)} ${String(h.count).padStart(3)}${jelzes}`);
+  }
+
   console.log(`\n  osszesen ${total} sor, ebbol ${pending} varna meg a menetrend szerint`);
   console.log(`  nyitott ellenorzesi eset: ${cases[0]?.count ?? 0}`);
 

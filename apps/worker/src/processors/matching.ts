@@ -530,26 +530,30 @@ export async function processUnmatchedResearch(
       const shop = await queryOne<{ health_status: string; key: string }>(
         'SELECT health_status, key FROM shops WHERE id = $1', [item.shop_id],
       );
-      // A "nincs talalat" CSAK egeszseges forras mellett adhato (spec 16.1)
-      const sourceHealthy = shop?.health_status === 'ok';
-
-      if (!sourceHealthy) {
-        await execute(
-          `UPDATE variant_shop_status
-              SET status = 'source_unhealthy', last_search_at = now(),
-                  next_search_at = now() + interval '1 day',
-                  primary_reason_code = 'SOURCE_UNHEALTHY'
-            WHERE canonical_variant_id = $1 AND shop_id = $2`,
-          [item.canonical_variant_id, item.shop_id],
-        );
-        byStatus['source_unhealthy'] = (byStatus['source_unhealthy'] ?? 0) + 1;
-        continue;
-      }
+      // A "nincs talalat" CSAK egeszseges forras mellett adhato (spec 16.1).
+      //
+      // Ezt a szabalyt a motor MAGA ervenyesiti: ha nincs jelolt es a forras
+      // nem egeszseges, `source_unhealthy` a dontes, nem `not_found`. Ezert
+      // eleg atadni a jelzest - a kiertekelest NEM szabad kihagyni.
+      //
+      // Korabban itt egy `continue` allt, es ez csendben megbenitotta az
+      // egesz ujraertekelest: egy sosem ellenorzott bolt allapota `unknown`,
+      // az pedig nem `ok`, tehat MINDEN par `source_unhealthy` lett - meg
+      // azok is, ahol a ket oldal azonossaga tokeletesen bizonyitott.
+      //
+      // Ez a lepes ráadásul nem is nyul a webshophoz: a jeloltkereses a MAR
+      // BEGYUJTOTT sorokon dolgozik. A bolt pillanatnyi elerhetosege nem
+      // befolyasolja, hogy ket adatbazissor azonos terméket ir-e le.
+      //
+      // Az `unknown` itt ugyanugy elfogadhato, mint a `search-all-shops`
+      // agon - a ket ut eddig ellentmondott egymasnak.
+      const health = shop?.health_status ?? 'unknown';
+      const sourceHealthy = health === 'ok' || health === 'unknown';
 
       try {
         const outcome = await evaluateVariantForShop({
           variant, shopId: item.shop_id, shopKey: item.shop_key,
-          taxonomy, policy, sourceHealthy: true, correlationId,
+          taxonomy, policy, sourceHealthy, correlationId,
         });
         byStatus[outcome.decision.status] = (byStatus[outcome.decision.status] ?? 0) + 1;
         searched++;
