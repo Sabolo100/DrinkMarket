@@ -69,6 +69,11 @@ interface ListingRow {
   region: string | null;
   country_code: string | null;
   grape_varieties: string[];
+  wine_style_id: string | null;
+  vineyard_id: string | null;
+  wine_region_id: string | null;
+  grape_signature: string | null;
+  grape_ids: string[] | null;
   gtin_normalized: string | null;
   sku: string | null;
   producer_name: string | null;
@@ -86,6 +91,8 @@ const LISTING_SELECT = `
          sl.container_type, sl.edition, sl.cask_finish, sl.dosage_style, sl.sweetness,
          sl.puttony, sl.abv_percent, sl.colour, sl.region, sl.country_code,
          sl.grape_varieties, sl.gtin_normalized, sl.sku,
+         sl.wine_style_id, sl.vineyard_id, sl.wine_region_id, sl.grape_signature,
+         slg.ids AS grape_ids,
          pr.canonical_name AS producer_name, br.canonical_name AS brand_name
     FROM source_listings sl
     JOIN shops s ON s.id = sl.shop_id
@@ -93,6 +100,13 @@ const LISTING_SELECT = `
     LEFT JOIN product_categories pc ON pc.id = sl.category_id
     LEFT JOIN producers pr ON pr.id = sl.producer_id
     LEFT JOIN brands br ON br.id = sl.brand_id
+    -- A fajta AZONOSITOKKAL: enelkul a jelolt oldala mindig ismeretlen
+    -- fajtat mutatna, es a fajtaeltéres SOHA nem tudna kizarni.
+    LEFT JOIN LATERAL (
+      SELECT array_agg(g.grape_variety_id::text) AS ids
+        FROM source_listing_grapes g
+       WHERE g.source_listing_id = sl.id
+    ) slg ON true
 `;
 
 const ACTIVE_FILTER = `sl.listing_status = 'active' AND sl.shop_id = $SHOP`;
@@ -125,6 +139,11 @@ function toCandidate(row: ListingRow, channel: CandidateChannel, rank: number, s
     grapeVarieties: row.grape_varieties ?? [],
     gtin: row.gtin_normalized,
     sku: row.sku,
+    grapeVarietyIds: row.grape_ids ?? [],
+    grapeSignature: row.grape_signature,
+    wineStyleId: row.wine_style_id,
+    vineyardId: row.vineyard_id,
+    wineRegionId: row.wine_region_id,
   };
   return {
     listingId: row.id,

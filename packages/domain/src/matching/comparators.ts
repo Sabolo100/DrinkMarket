@@ -113,6 +113,22 @@ export interface CompareResult {
   fuzzyOnlyBrandMatch: boolean;
   /** Igaz, ha a nevkapcsolatot csak webshop-specifikus alias indokolja. */
   shopSpecificAliasOnly: boolean;
+  /**
+   * MINDEN azonossaghordozo mezo `match` allapotu - egyik sem `unknown`, es
+   * egyik sem `contradiction`.
+   *
+   * Az azonossagmagot a KATEGORIA mondja meg (`identity_core`), nem a
+   * mezoszerepek. A `contradiction_only` erre tul tag halmaz: benne van a
+   * GTIN es a fantazianev is, amik hianya viszont teljesen normalis.
+   * Bornal a mag: boraszat, fajta, szin, evjarat es kiszereles.
+   *
+   * Ez NEM ugyanaz, mint a magas pontszam. Az `agreementScore` csak az
+   * ISMERT mezoket atlagolja, ezert ket ismert mezobol is lehet 1.0 - ez a
+   * jelzo viszont azt allitja, hogy nem maradt ismeretlen azonossaghordozo.
+   */
+  identityComplete: boolean;
+  /** Melyik azonossaghordozok maradtak bizonyitatlanul - a magyarazathoz. */
+  identityUnproven: string[];
 }
 
 /**
@@ -221,7 +237,34 @@ export function compareIdentityFields(
     }
   }
 
-  return { fields, hardContradictions: hard, unknownRequired, fuzzyOnlyBrandMatch, shopSpecificAliasOnly };
+  // ── Teljes bizonyitott azonossag ─────────────────────────────────────────
+  // Vegigmegyunk a mar osszevetett mezokon, es azt kerdezzuk: maradt-e olyan
+  // AZONOSSAGHORDOZO, amit nem bizonyitottunk. Egyetlen ilyen is eleg ahhoz,
+  // hogy a par ne mehessen at automatikusan.
+  // A mezonev-terkep a profilban `vintage` -> `vintageValue`-t ad, a
+  // komparator viszont `vintage` neven teszi be az evjaratot (kulon agon
+  // kezeli a vintage_status miatt). A ket nevet itt kell osszekotni,
+  // kulonben az evjarat SOHA nem szamitana bizonyitottnak, es egyetlen bor
+  // sem mehetne at automatikusan.
+  const byName = new Map(fields.map((f) => [f.field, f]));
+  const lookup = (name: string): FieldComparison | undefined =>
+    byName.get(name) ?? (name === 'vintageValue' ? byName.get('vintage') : undefined);
+
+  const core = ctx.profile.identityCoreFields;
+  const identityUnproven: string[] = [];
+  for (const name of core) {
+    const f = lookup(name);
+    if (!f || f.state !== 'match') identityUnproven.push(name);
+  }
+  // Ures azonossagmag eseten NEM allitunk teljesseget: a hallgatas nem
+  // jelenthet engedelyt egy ember nelkuli dontesre.
+  const identityComplete = core.length > 0 && identityUnproven.length === 0 && hard.length === 0;
+
+  return {
+    fields, hardContradictions: hard, unknownRequired,
+    fuzzyOnlyBrandMatch, shopSpecificAliasOnly,
+    identityComplete, identityUnproven,
+  };
 }
 
 interface SingleFieldResult {

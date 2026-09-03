@@ -23,6 +23,12 @@ export interface CanonicalSide {
   /** A kanonikus oldal kinyeresi minosege (import/manual eseten 1.0). */
   extractionQuality: number;
   identityHash: string;
+  /**
+   * Viszonyitasi ar: a mar IGAZOLT boltok legolcsobb osszehasonlithato ara.
+   * Csak az automatikus jovahagyas oreként hasznaljuk - az azonossagot nem
+   * bizonyitja es nem cafolja. Ismeretlen ar eseten nincs hatasa.
+   */
+  referencePriceHuf?: number | null;
 }
 
 export interface EngineInput {
@@ -80,6 +86,8 @@ export function scoreCandidate(
       decisionStrength: 0,
       topMargin: 0,
       reasonCodes: cmp.hardContradictions.map((h) => h.code),
+      identityComplete: false,
+      priceRatio: priceRatioOf(input.canonical, candidate),
     };
   }
 
@@ -129,6 +137,18 @@ export function scoreCandidate(
     reasonCodes.push(REASON_CODES.EAN_MATCH_VINTAGE_UNPROVEN);
   }
 
+  // ── 5b. Arany-or ─────────────────────────────────────────────────────────
+  //
+  // Az ar SOHA nem utasit el es nem is javit a pontszamon: a rendszer termeke
+  // epp az arkulonbseg, egy valodi 30%-os elonyt eldobni onveszelyes lenne.
+  // Amit tud: egy kiugro arany (a belepo es a premium tetel ugyanattol a
+  // boraszattol sokszorosan elter) megallitja az AUTOMATIKUS jovahagyast, es
+  // emberi dontesre teszi a part.
+  const priceRatio = priceRatioOf(input.canonical, candidate);
+  if (priceRatio !== null && priceRatio > input.policy.thresholds.priceRatioMax) {
+    reasonCodes.push(REASON_CODES.PRICE_RATIO_IMPLAUSIBLE);
+  }
+
   // ── 6. decision_strength: az osszevont dontesi ero ────────────────────────
   const decisionStrength = clamp01(
     0.50 * agreementScore +
@@ -152,7 +172,23 @@ export function scoreCandidate(
     decisionStrength: round4(decisionStrength),
     topMargin: 0,
     reasonCodes: [...new Set(reasonCodes)],
+    identityComplete: cmp.identityComplete,
+    priceRatio,
   };
+}
+
+/**
+ * A ket ar hanyadosa, ha MINDKETTO ismert.
+ *
+ * A hianyzo ar nem gyanu: egy keszlethiany vagy egy kinyeresi hiba miatt
+ * ismeretlen ar nem tehet gyanussa egy egyebkent bizonyitott azonossagot.
+ * A kanonikus oldal ara a mar igazolt listingek kozul a legolcsobb.
+ */
+function priceRatioOf(canonical: CanonicalSide, candidate: Candidate): number | null {
+  const a = canonical.referencePriceHuf ?? null;
+  const b = candidate.priceHuf ?? null;
+  if (!a || !b || a <= 0 || b <= 0) return null;
+  return round4(Math.max(a, b) / Math.min(a, b));
 }
 
 function requiredUnknownCode(field: string): string {
@@ -263,7 +299,15 @@ export function decideMatch(input: EngineInput): MatchDecisionResult {
 
   // ── Minden jelolt kiesett hard contradictionon ───────────────────────────
   if (eligible.length === 0) {
-    const first = evaluated[0];
+    // A LEGKOZELEBBI kozelites jelentendo, nem a bemeneti sorrend elso eleme.
+    // A pontszam mind a nullaval egyenlo (a hard gate nullazza), ezert a
+    // kevesebb ellentmondas, azon belul az erosebb visszakeresesi tamogatas
+    // dont. Enelkul az ember egy onkenyesen kivalasztott jelolt indoklasat
+    // latna - pont azt, ami a dontesehez a legkevesbe hasznos.
+    const first = [...evaluated].sort(
+      (a, b) => a.contradictionCount - b.contradictionCount
+        || b.retrievalSupport - a.retrievalSupport,
+    )[0];
     return baseDecision(canonical, first?.candidate ?? null, policy, {
       status: 'rejected',
       hardContradictions: first?.hardContradictions ?? [],
@@ -320,6 +364,46 @@ export function decideMatch(input: EngineInput): MatchDecisionResult {
     first.negativeHistory === 0 &&
     (!policy.autoMatchIdentifierOnly || strongIdentifier);
 
+  // ── Masodik ut: TELJES bizonyitott azonossag ─────────────────────────────
+  //
+  // Az elso ut bornal soha nem tud tuzelni. Ket oka van: a GTIN-feltetel
+  // (`autoMatchIdentifierOnly`) ertelmetlen, mert ugyanaz az EAN tobb
+  // evjaratot is atfog - ezert mondja ki a bor profilja, hogy
+  // `gtinResolvesVintage: false` -, es a `extractionQuality >= 0.90` kuszob
+  // is teljesithetetlen a valos webshopadatokon.
+  //
+  // Ez az ut mast kerdez: nem azt, hogy MENNYIRE eros a bizonyitas, hanem
+  // hogy TELJES-e. Ha minden azonossaghordozo - boraszat, fajta, bortipus,
+  // evjarat, kiszereles - bizonyitottan egyezik, es semmi nem mond ellent,
+  // akkor nem maradt olyan kerdes, amit egy ember jobban tudna eldonteni.
+  //
+  // Ezert kerulheti meg a pontszam-kuszoboket: a teljesseg celzottabb es
+  // szigorubb teszt, mint a minosegi padlo. Egy gyenge kinyeresu listing
+  // azonossagmezoi ugyis `unknown`-ok maradnak, tehat itt eleve elbukik.
+  const identityCompleteEligible =
+    policy.autoMatchIdentityComplete &&
+    !profile.autoMatchBlocked() &&
+    first.identityComplete &&
+    first.contradictionCount === 0 &&
+    !reasons.has(REASON_CODES.FUZZY_ONLY_BRAND_MATCH) &&
+    !reasons.has(REASON_CODES.SHOP_SPECIFIC_ALIAS_ONLY) &&
+    !reasons.has(REASON_CODES.PRICE_RATIO_IMPLAUSIBLE) &&
+    first.negativeHistory === 0 &&
+    first.topMargin >= th.topMargin;
+
+  if (identityCompleteEligible) {
+    reasons.add(REASON_CODES.IDENTITY_COMPLETE);
+    return baseDecision(canonical, first.candidate, policy, {
+      status: 'auto_verified',
+      fieldResults: fieldResultsOf(first),
+      scores: first,
+      reasonCodes: [...reasons],
+      explanationHu: buildExplanation(first, 'auto'),
+      candidateSources: allChannels,
+      runnerUp,
+    });
+  }
+
   if (autoEligible) {
     return baseDecision(canonical, first.candidate, policy, {
       status: 'auto_verified',
@@ -333,8 +417,16 @@ export function decideMatch(input: EngineInput): MatchDecisionResult {
   }
 
   // Miert nem lett automatikus?
-  if (!policy.autoMatchEnabled) reasons.add(REASON_CODES.AUTO_MATCH_DISABLED);
-  else if (policy.autoMatchIdentifierOnly && !strongIdentifier) reasons.add(REASON_CODES.AUTO_MATCH_IDENTIFIER_ONLY);
+  //
+  // Az `AUTO_MATCH_DISABLED` csak akkor igaz allitas, ha MINDKET ut zarva
+  // van. Ha a teljes-azonossagi ut nyitva all, es a par megis nem ment at,
+  // akkor nem a kapcsolo volt az ok - es ezt kiirni felrevezetne azt, aki
+  // az indoklas alapjan probal donteni.
+  const bothAutoPathsClosed = !policy.autoMatchEnabled && !policy.autoMatchIdentityComplete;
+  if (bothAutoPathsClosed) reasons.add(REASON_CODES.AUTO_MATCH_DISABLED);
+  else if (policy.autoMatchEnabled && policy.autoMatchIdentifierOnly && !strongIdentifier) {
+    reasons.add(REASON_CODES.AUTO_MATCH_IDENTIFIER_ONLY);
+  }
   if (profile.autoMatchBlocked()) reasons.add(REASON_CODES.CATEGORY_AUTOMATCH_BLOCKED);
 
   // ── Ambiguous: tobb egyformán eros jelolt ────────────────────────────────
@@ -426,6 +518,8 @@ function baseDecision(
     retrievalSupport: o.scores?.retrievalSupport ?? null,
     topMargin: o.scores?.topMargin ?? null,
     decisionStrength: o.scores?.decisionStrength ?? null,
+    identityComplete: o.scores?.identityComplete ?? false,
+    priceRatio: o.scores?.priceRatio ?? null,
     contradictionCount: o.contradictionCount ?? o.scores?.contradictionCount ?? 0,
     negativeHistory: o.scores?.negativeHistory ?? 0,
     reasonCodes: [...new Set(o.reasonCodes)],
@@ -440,8 +534,14 @@ function buildExplanation(sc: ScoredCandidate, mode: 'auto' | 'review'): string 
   const matched = sc.fields.filter((f) => f.state === 'match').map((f) => f.field);
   const unknown = sc.fields.filter((f) => f.state === 'unknown' && f.role === 'required').map((f) => f.field);
   const parts: string[] = [];
+  if (sc.identityComplete) {
+    parts.push('Minden azonossaghordozo mezo bizonyitottan egyezik.');
+  }
   if (matched.length) parts.push(`Egyezo mezok: ${matched.join(', ')}.`);
   if (unknown.length) parts.push(`Nem bizonyitott kotelezo mezok: ${unknown.join(', ')}.`);
+  if (sc.priceRatio !== null && sc.priceRatio > 1.25) {
+    parts.push(`Az arak aranya: ${sc.priceRatio}x.`);
+  }
   parts.push(
     `Pontszamok - egyezes: ${sc.agreementScore}, bizonyitek-lefedettseg: ${sc.evidenceCoverage}, ` +
     `kinyeresi minoseg: ${sc.extractionQuality}, elony a masodikhoz kepest: ${sc.topMargin}.`,

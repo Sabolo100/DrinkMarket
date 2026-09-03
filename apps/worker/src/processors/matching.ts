@@ -2,7 +2,9 @@
  * Parositasi processzorok (spec 5.3, 9.5, 16.).
  */
 import type { Job } from 'bullmq';
-import { execute, query, queryOne } from '@radovin/db';
+import { execute, query, queryOne, withAdvisoryLock } from '@radovin/db';
+import { canonicalIdentityKey } from '@radovin/domain';
+import { emptyIdentityFields } from '@radovin/contracts';
 import { logger, metrics, newCorrelationId, withContext } from '@radovin/observability';
 import type { WorkerConfig } from '../config.js';
 import {
@@ -125,6 +127,24 @@ export async function processClusterListing(
     if (result.status === 'no_variant_candidate' || result.status === 'all_rejected') {
       const created = await promoteListingToVariant(sourceListingId, null);
       if (created) {
+        // A kotegelt sopres parhuzamosan futtat sok klaszterezest, ezert
+        // kozben letrejohetett ugyanennek a bornak a valtozata egy masik
+        // boltbol. Ilyenkor NEM kotjuk oda vakon - ujra elbiraljuk, most mar
+        // a letezo valtozat ellen. Igy a dontes ugyanazon a kapun megy at,
+        // mint barmelyik masik.
+        const linked = await queryOne<{ id: string }>(
+          `SELECT id FROM match_relations
+            WHERE canonical_variant_id = $1 AND source_listing_id = $2 AND valid_to IS NULL
+            LIMIT 1`,
+          [created, sourceListingId],
+        );
+        if (!linked) {
+          const second = await evaluateListingForClustering({
+            listingId: sourceListingId, taxonomy, policy,
+          });
+          return { ...second, retriedAgainstVariantId: created };
+        }
+
         await enqueueFromWorker(config, {
           queue: 'candidate-generation', name: 'search-all-shops',
           payload: { canonicalVariantId: created, trigger: 'auto_discovery' },
@@ -235,6 +255,103 @@ export async function promoteListingToVariant(
     ?? (await queryOne<{ id: string }>(`SELECT id FROM product_categories WHERE key = 'uncategorized'`))?.id;
   if (!categoryId) return null;
 
+  // A kotegelt sopres parhuzamosan futtat sok klaszterezest, es ket AZONOS
+  // listing egyszerre erne ide - mindketto ures katalogust latna, es
+  // mindketto sajat valtozatot hozna letre. A meresen ot azonos bor ot kulon
+  // valtozatot csinalt. A zar a boltfuggetlen azonossagkulcsra megy, igy
+  // ugyanannak a bornak a peldanyai sorbaallnak egymas mogott.
+  const identityKey = canonicalIdentityKey({
+    ...emptyIdentityFields(),
+    producerId: listing.producer_id, brandId: listing.brand_id,
+    vintageValue: listing.vintage_value,
+    vintageStatus: listing.vintage_status as never,
+    volumeMl: listing.volume_ml, packCount: listing.pack_count ?? 1,
+    packagingType: listing.packaging_type as never,
+    grapeSignature: listing.grape_signature,
+    wineStyleId: listing.wine_style_id, vineyardId: listing.vineyard_id,
+    edition: listing.edition, puttony: listing.puttony,
+    ageStatementYears: listing.age_statement_years,
+  });
+
+  const promoted = await withAdvisoryLock(
+    `promote:${categoryId}:${identityKey}`,
+    () => promoteInsideLock(listing, categoryId, actorUserId),
+    { waitMs: 15_000 },
+  );
+  // A zar megszerzese nelkul NEM hozunk letre semmit: a listing
+  // `unclustered` marad, es a kovetkezo sopres ujra elveszi.
+  return promoted ?? null;
+}
+
+interface PromoteListing {
+  id: string; shop_id: string; raw_name: string; expression: string | null;
+  producer_id: string | null; brand_id: string | null; category_id: string | null;
+  category_key: string | null; vintage_value: number | null; vintage_status: string;
+  age_statement_years: number | null; volume_ml: number | null; pack_count: number;
+  packaging_type: string; edition: string | null; cask_finish: string | null;
+  dosage_style: string | null; puttony: number | null; abv_percent: number | null;
+  gtin: string | null; gtin_normalized: string | null; region: string | null;
+  colour: string | null; country_code: string | null; grape_varieties: string[];
+  wine_style_id: string | null; vineyard_id: string | null; wine_region_id: string | null;
+  grape_signature: string | null; grape_ids: string[] | null;
+  evidence: Record<string, unknown>; identity_hash: string | null;
+  identity_profile: Record<string, unknown>; comparison_policy: Record<string, unknown>;
+}
+
+async function promoteInsideLock(
+  listing: PromoteListing,
+  categoryId: string,
+  actorUserId: string | null,
+): Promise<string | null> {
+  const listingId = listing.id;
+
+  // Letezik-e mar ugyanez a termek? A zaron belul ez a keres MEGBIZHATO:
+  // amig tartjuk, senki nem hozhat letre versenytarsat.
+  const already = await queryOne<{ id: string }>(
+    `SELECT cv.id::text
+       FROM canonical_variants cv
+       JOIN product_families pf ON pf.id = cv.product_family_id
+      WHERE pf.category_id = $1
+        AND coalesce(pf.producer_id::text,'') = coalesce($2::text,'')
+        AND coalesce(pf.brand_id::text,'')    = coalesce($3::text,'')
+        AND coalesce(cv.vintage_value,-1)     = coalesce($4::int,-1)
+        AND coalesce(cv.volume_ml,-1)         = coalesce($5::int,-1)
+        AND cv.pack_count                     = $6
+        AND cv.packaging_type                 = $7
+        AND coalesce(cv.grape_signature,'')   = coalesce($8::text,'')
+        AND coalesce(cv.wine_style_id::text,'') = coalesce($9::text,'')
+        AND cv.status <> 'merged'
+      ORDER BY (cv.status = 'active') DESC, cv.created_at
+      LIMIT 1`,
+    [
+      categoryId, listing.producer_id, listing.brand_id, listing.vintage_value,
+      listing.volume_ml, listing.pack_count ?? 1, listing.packaging_type,
+      listing.grape_signature, listing.wine_style_id,
+    ],
+  );
+
+  if (already) {
+    // Nem uj termek. Hogy mi tortenik most, az azon mulik, KI kerte:
+    //
+    //  - EMBER (`actorUserId`): a dontes megszuletett, kotjuk.
+    //  - GEP (`null`): NEM kotjuk. A kapcsolatot a dontesi motoron keresztul
+    //    kell megszereznie - ott ervenyesul az ar-or, a fuzzy-tilalom, a
+    //    negativ memoria es az `auto_match_identity_complete` kapcsolo is.
+    //    Enelkul ez az ag egy hatso ajton keruilne meg minden vedokorlatot.
+    if (actorUserId) {
+      await linkListingToVariant(already.id, listingId, listing.shop_id, listing.identity_hash, actorUserId);
+      logger.info('listing.linked_to_existing_variant', {
+        listingId, canonicalVariantId: already.id,
+      });
+    } else {
+      logger.info('listing.existing_variant_found', {
+        listingId, canonicalVariantId: already.id,
+        hint: 'A kapcsolat a dontesi motoron keresztul dol el.',
+      });
+    }
+    return already.id;
+  }
+
   const familyName = listing.expression ?? listing.raw_name;
 
   const family = await queryOne<{ id: string }>(
@@ -314,18 +431,36 @@ export async function promoteListingToVariant(
     );
   }
 
-  // A kiindulo listing azonnal a sajat klaszterehez kapcsolodik.
-  // Ez `proposed` kapcsolat - NEM automatikusan verified.
+  await linkListingToVariant(
+    variant.id, listingId, listing.shop_id, listing.identity_hash, actorUserId,
+  );
+
+  logger.info('listing.promoted_to_variant', {
+    listingId, canonicalVariantId: variant.id, name: listing.raw_name,
+  });
+  return variant.id;
+}
+
+/**
+ * A listing hozzakotese egy kanonikus valtozathoz.
+ *
+ * Ket hivo van: az uj valtozat letrehozasa, es a mar letezo valtozathoz
+ * kapcsolas (amikor a sopres parhuzamosan hozza fel ugyanazt a bort).
+ */
+async function linkListingToVariant(
+  variantId: string,
+  listingId: string,
+  shopId: string,
+  identityHash: string | null,
+  actorUserId: string | null,
+): Promise<void> {
   await execute(
     `INSERT INTO match_relations
        (canonical_variant_id, source_listing_id, shop_id, status, decision_origin,
         identity_hash_at_decision)
      VALUES ($1, $2, $3, 'verified', $4, $5)
      ON CONFLICT DO NOTHING`,
-    [
-      variant.id, listingId, listing.shop_id,
-      actorUserId ? 'human' : 'auto', listing.identity_hash,
-    ],
+    [variantId, listingId, shopId, actorUserId ? 'human' : 'auto', identityHash],
   );
   await execute(`UPDATE source_listings SET cluster_status = 'clustered' WHERE id = $1`, [listingId]);
   await execute(
@@ -333,7 +468,7 @@ export async function promoteListingToVariant(
      VALUES ($1,$2,'human_verified',$3, now())
      ON CONFLICT (canonical_variant_id, shop_id) DO UPDATE
        SET status = EXCLUDED.status, matched_listing_id = EXCLUDED.matched_listing_id`,
-    [variant.id, listing.shop_id, listingId],
+    [variantId, shopId, listingId],
   );
   // A tobbi webshopra azonnal keresest utemezunk
   await execute(
@@ -341,13 +476,8 @@ export async function promoteListingToVariant(
      SELECT $1, id, 'unsearched', now() FROM shops
       WHERE active AND NOT policy_disabled AND id <> $2
      ON CONFLICT DO NOTHING`,
-    [variant.id, listing.shop_id],
+    [variantId, shopId],
   );
-
-  logger.info('listing.promoted_to_variant', {
-    listingId, canonicalVariantId: variant.id, name: listing.raw_name,
-  });
-  return variant.id;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

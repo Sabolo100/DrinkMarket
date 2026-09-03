@@ -61,7 +61,14 @@ export default async function ReviewListPage({
           csomagolású termék árát mutassa. A sorrend a kockázatot követi: előbb az
           identitás-eltolódások, majd a sok webshopot érintő termékek.</>
         }
-        actions={<span className="label num">{num(data.total)} nyitott eset</span>}
+        actions={
+          <div className="row-tight" style={{ gap: 10 }}>
+            <span className="label num">{num(data.total)} nyitott eset</span>
+            <Link href="/parositas/valtozatok" className="btn btn-sm">
+              Termékenként (gyorsabb)
+            </Link>
+          </div>
+        }
       />
 
       {/* Eset-típusok gyors szűrője */}

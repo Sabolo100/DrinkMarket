@@ -172,12 +172,23 @@ export async function getSettings(force = false) {
   return settingsCache;
 }
 
+const DEFAULT_THRESHOLDS: MatchPolicy['thresholds'] = {
+  autoMatch: { evidenceCoverage: 0.9, extractionQuality: 0.9, agreementScore: 0.96, topMargin: 0.1 },
+  review: { minScore: 0.7 },
+  ambiguousMargin: 0.03,
+  volumeToleranceMl: 5,
+  priceRatioMax: 3.0,
+};
+
 export async function getMatchPolicy(): Promise<MatchPolicy> {
   const s = await getSettings();
-  const thresholds = (s.settings.get('matching.thresholds') ?? {
-    autoMatch: { evidenceCoverage: 0.9, extractionQuality: 0.9, agreementScore: 0.96, topMargin: 0.1 },
-    review: { minScore: 0.7 }, ambiguousMargin: 0.03, volumeToleranceMl: 5,
-  }) as MatchPolicy['thresholds'];
+  // A tarolt sor egy REGEBBI sema szerint keszult, ezert osszefesuljuk az
+  // alapertelmezessel. Enelkul egy kesobb bevezetett kuszob `undefined`-kent
+  // erkezne, es minden ra epulo osszehasonlitas csendben hamis lenne.
+  const thresholds = {
+    ...DEFAULT_THRESHOLDS,
+    ...((s.settings.get('matching.thresholds') ?? {}) as Partial<MatchPolicy['thresholds']>),
+  } as MatchPolicy['thresholds'];
   const weights = (s.settings.get('matching.field_weights') ?? {
     producer: 0.18, expression: 0.28, vintage: 0.16, volume: 0.16,
     category: 0.06, region: 0.06, abv: 0.04, gtin: 0.04, image: 0.02,
@@ -190,6 +201,7 @@ export async function getMatchPolicy(): Promise<MatchPolicy> {
     policyVersion: str(s.settings.get('policy.version'), '2.1.0'),
     autoMatchEnabled: s.flags.get('auto_match') ?? false,
     autoMatchIdentifierOnly: s.flags.get('auto_match_identifier_only') ?? true,
+    autoMatchIdentityComplete: s.flags.get('auto_match_identity_complete') ?? false,
     thresholds,
     fieldWeights: weights,
   };

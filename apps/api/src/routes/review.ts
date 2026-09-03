@@ -5,6 +5,7 @@
  * idempotency key-t. A kezi dontest automatika nem irhatja felul (spec 17.4).
  */
 import type { FastifyInstance } from 'fastify';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { REASON_CODE_HU } from '@radovin/contracts';
 import { execute, query, queryOne, transaction } from '@radovin/db';
@@ -15,6 +16,7 @@ import {
   assertRowVersion, audit, pageParams, paginated, recallIdempotent, rememberIdempotent,
 } from '../lib/context.js';
 import { enqueue, JOB_PRIORITY } from '../lib/queues.js';
+import { applyApprove, applyReject, closeCase, loadOpenCase } from './review-actions.js';
 
 const decisionBody = z.object({
   note: z.string().max(2000).optional(),
@@ -226,59 +228,18 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
     const cached = recallIdempotent(idem ? `approve:${id}:${idem}` : undefined);
     if (cached) return cached;
 
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
     const listingId = body.sourceListingId ?? rc.source_listing_id;
     if (!rc.canonical_variant_id || !listingId) {
       throw new AppError('INVALID_CASE', 'Az esethez nem tartozik kanonikus termek vagy listing.', 400);
     }
 
+    const variantId = rc.canonical_variant_id;
     await transaction(async (client) => {
-      // Egy listingnek legfeljebb egy aktiv verified kapcsolata lehet (spec 8.9)
-      await client.query(
-        `UPDATE match_relations SET valid_to = now(), status = 'suspended'
-          WHERE source_listing_id = $1 AND status = 'verified' AND valid_to IS NULL
-            AND canonical_variant_id <> $2`,
-        [listingId, rc.canonical_variant_id],
-      );
-      await client.query(
-        `INSERT INTO match_relations
-           (canonical_variant_id, source_listing_id, shop_id, status, decision_origin,
-            verified_kind, locked_by_human, last_verified_at, identity_hash_at_decision, confidence)
-         SELECT $1, $2, sl.shop_id, 'verified', 'human', 'human_verified', true, now(),
-                sl.identity_hash, $3
-           FROM source_listings sl WHERE sl.id = $2
-         ON CONFLICT (canonical_variant_id, source_listing_id) WHERE valid_to IS NULL
-         DO UPDATE SET status = 'verified', decision_origin = 'human',
-                       verified_kind = 'human_verified', locked_by_human = true,
-                       last_verified_at = now(), drift_detected_at = NULL, drift_reason = NULL,
-                       version = match_relations.version + 1`,
-        [rc.canonical_variant_id, listingId, rc.confidence ?? null],
-      );
-      await client.query(
-        `INSERT INTO match_decisions
-           (canonical_variant_id, source_listing_id, shop_id, status, matcher_version,
-            taxonomy_version, policy_version, decided_by, reviewer_user_id, reviewed_at,
-            review_note, reason_codes, match_relation_id)
-         SELECT $1, $2, sl.shop_id, 'human_verified', 'human', 'human', 'human',
-                'human', $3, now(), $4, ARRAY['MANUAL_APPROVAL'],
-                (SELECT id FROM match_relations WHERE canonical_variant_id = $1
-                   AND source_listing_id = $2 AND valid_to IS NULL)
-           FROM source_listings sl WHERE sl.id = $2`,
-        [rc.canonical_variant_id, listingId, actor.id, body.note ?? null],
-      );
-      await client.query(
-        `UPDATE source_listings SET cluster_status = 'clustered' WHERE id = $1`, [listingId],
-      );
-      await client.query(
-        `INSERT INTO variant_shop_status
-           (canonical_variant_id, shop_id, status, matched_listing_id, last_search_at)
-         SELECT $1, sl.shop_id, 'human_verified', $2, now() FROM source_listings sl WHERE sl.id = $2
-         ON CONFLICT (canonical_variant_id, shop_id)
-         DO UPDATE SET status = 'human_verified', matched_listing_id = $2,
-                       consecutive_no_match = 0, primary_reason_code = NULL, reason_codes = '{}'`,
-        [rc.canonical_variant_id, listingId],
-      );
-      await closeCase(client, id, actor.id, 'approved', body.note ?? null);
+      await applyApprove(client, {
+        caseId: id, canonicalVariantId: variantId, listingId,
+        actorId: actor.id, note: body.note ?? null, confidence: rc.confidence ?? null,
+      });
     });
 
     // Jovahagyas utan azonnali arfrissites (spec 18.1)
@@ -309,7 +270,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
       sourceListingId: z.string().uuid().optional(),
     }).parse(req.body);
 
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
     const listingId = body.sourceListingId ?? rc.source_listing_id;
     if (!rc.canonical_variant_id || !listingId) {
       throw new AppError('INVALID_CASE', 'Az esethez nem tartozik kanonikus termek vagy listing.', 400);
@@ -333,6 +294,28 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
          ON CONFLICT DO NOTHING`,
         [rc.canonical_variant_id, listingId, actor.id, body.reasonCode, body.note ?? null, rc.confidence ?? null],
       );
+      // A valtozat-bolt allapot frissitese. Enelkul a sor NEM fogy: az
+      // `unmatched-research` a `next_search_at` szerint ujra elovenne
+      // ugyanezt a part, es az ember ujra dontene rola.
+      //
+      // A `rejected` allapot 30 napra tolja a kovetkezo keresest
+      // (`nextSearchFor`), de nem zarja le orokre: egy uj listing vagy egy
+      // javitott kinyeres kesobb hozhat jobb jeloltet.
+      if (rc.shop_id) {
+        await client.query(
+          `INSERT INTO variant_shop_status
+             (canonical_variant_id, shop_id, status, primary_reason_code,
+              last_search_at, next_search_at, consecutive_no_match)
+           VALUES ($1, $2, 'rejected', $3, now(), now() + interval '30 days', 0)
+           ON CONFLICT (canonical_variant_id, shop_id) DO UPDATE SET
+             status = 'rejected',
+             primary_reason_code = EXCLUDED.primary_reason_code,
+             matched_listing_id = NULL,
+             last_search_at = now(),
+             next_search_at = EXCLUDED.next_search_at`,
+          [rc.canonical_variant_id, rc.shop_id, body.reasonCode],
+        );
+      }
       await closeCase(client, id, actor.id, 'rejected', body.note ?? null);
     });
 
@@ -349,7 +332,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
     const actor = requireAtLeast(req.user, 'reviewer');
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const body = decisionBody.extend({ sourceListingId: z.string().uuid() }).parse(req.body);
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
 
     // A nem valasztott jeloltek negativ memoriaba kerulnek
     const candidates = Array.isArray(rc.candidates)
@@ -370,7 +353,13 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
           [rc.canonical_variant_id, listingId, actor.id, body.note ?? 'Masik jelolt lett kivalasztva.'],
         );
       }
-      await client.query(`UPDATE review_cases SET source_listing_id = $2 WHERE id = $1`, [id, body.sourceListingId]);
+      // A row_version leptetese kotelezo: enelkul a lapon levo optimista zar
+      // csendben elavul, es a kovetkezo dontes egy mar megvaltozott eseten
+      // futna le - ugyanabban a keprnyoallapotban, ami mar nem igaz.
+      await client.query(
+        `UPDATE review_cases SET source_listing_id = $2, row_version = row_version + 1 WHERE id = $1`,
+        [id, body.sourceListingId],
+      );
     });
 
     await audit({
@@ -384,7 +373,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
     const actor = requireAtLeast(req.user, 'reviewer');
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const body = decisionBody.extend({ note: z.string().min(3, 'Az indoklas kotelezo.') }).parse(req.body);
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
 
     await transaction(async (client) => {
       if (rc.canonical_variant_id && rc.shop_id) {
@@ -459,7 +448,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
       rowVersion: z.number().int().optional(),
       changes: z.record(z.unknown()),
     }).parse(req.body);
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
     if (!rc.canonical_variant_id) throw new AppError('INVALID_CASE', 'Az esethez nem tartozik kanonikus termek.', 400);
 
     const allowed: Record<string, string> = {
@@ -511,7 +500,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
     const actor = requireAtLeast(req.user, 'catalog_manager');
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const body = decisionBody.parse(req.body ?? {});
-    const rc = await requireOpenCase(id, body.rowVersion);
+    const rc = await loadOpenCase(id, body.rowVersion);
     if (!rc.source_listing_id) throw new AppError('INVALID_CASE', 'Az esethez nem tartozik listing.', 400);
 
     const job = await enqueue({
@@ -586,54 +575,3 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
 
 // ── Segedek ────────────────────────────────────────────────────────────────
 
-interface OpenCase {
-  id: string;
-  canonical_variant_id: string | null;
-  source_listing_id: string | null;
-  shop_id: string | null;
-  confidence: number | null;
-  candidates: unknown;
-  row_version: number;
-}
-
-async function requireOpenCase(id: string, expectedVersion?: number): Promise<OpenCase> {
-  const rc = await queryOne<OpenCase & { status: string }>(
-    `SELECT id, canonical_variant_id, source_listing_id, shop_id, confidence,
-            candidates, row_version, status
-       FROM review_cases WHERE id = $1`,
-    [id],
-  );
-  if (!rc) throw new AppError('NOT_FOUND', 'A felulvizsgalati eset nem talalhato.', 404);
-  if (rc.status === 'resolved' || rc.status === 'dismissed') {
-    throw new AppError('CASE_CLOSED', 'Ez az eset mar lezarult.', 409);
-  }
-  if (expectedVersion !== undefined && rc.row_version !== expectedVersion) {
-    throw new AppError(
-      'VERSION_CONFLICT',
-      `Az esetet idokozben modositottak (varhato: ${expectedVersion}, aktualis: ${rc.row_version}). Toltsd ujra.`,
-      409, { currentVersion: rc.row_version },
-    );
-  }
-  return rc;
-}
-
-async function closeCase(
-  client: { query: (sql: string, params: unknown[]) => Promise<unknown> },
-  id: string,
-  actorId: string,
-  resolution: string,
-  note: string | null,
-): Promise<void> {
-  await client.query(
-    `UPDATE review_cases
-        SET status = 'resolved', resolution = $3, resolution_note = $4,
-            resolved_by = $2, resolved_at = now(), row_version = row_version + 1
-      WHERE id = $1`,
-    [id, actorId, resolution, note],
-  );
-  await client.query(
-    `INSERT INTO review_case_events (review_case_id, actor_user_id, action, note)
-     VALUES ($1,$2,$3,$4)`,
-    [id, actorId, resolution, note],
-  );
-}

@@ -918,3 +918,118 @@ select {
   body { background: #fff; }
   .table-wrap { border: none; overflow: visible; }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Változat-központú párosítás-ellenőrzés.
+
+   A boroknál a CÍMKE a legerősebb emberi bizonyíték: egy pillantás alatt
+   eldönti azt, amit a mezőnkénti tábla húsz sorban sem tud. Ezért itt a kép
+   a legnagyobb elem, és minden más háttérbe húzódik.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.pair-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--s-5);
+  align-items: start;
+}
+@media (max-width: 900px) { .pair-layout { grid-template-columns: 1fr; } }
+
+.pair-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: var(--s-4);
+}
+
+.pair-card {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.pair-card[data-state='accept'] {
+  border-color: var(--verdigris);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--verdigris) 40%, transparent);
+}
+.pair-card[data-state='reject'] {
+  border-color: color-mix(in srgb, var(--rust) 55%, transparent);
+  opacity: 0.62;
+}
+
+/* A döntés a kártya TETEJÉN van: a szem előbb lássa, mint a részleteket. */
+.pair-decide {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border-bottom: 1px solid var(--rule-faint);
+}
+.pair-decide button {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 7px 2px;
+  border: none;
+  border-right: 1px solid var(--rule-faint);
+  background: var(--paper-3);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.pair-decide button:last-child { border-right: none; }
+.pair-decide button:hover { background: var(--paper); color: var(--ink); }
+.pair-decide button[aria-pressed='true'][data-kind='accept'] { background: var(--verdigris); color: #F2F7F3; }
+.pair-decide button[aria-pressed='true'][data-kind='pending'] { background: var(--cork); color: var(--paper); }
+.pair-decide button[aria-pressed='true'][data-kind='reject'] { background: var(--rust); color: #FBF3F1; }
+
+/* A kép: a kártya legnagyobb eleme. */
+.pair-image {
+  height: 190px;
+  background: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  border-bottom: 1px solid var(--rule-faint);
+  padding: var(--s-2);
+}
+.pair-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.pair-image .no-image {
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-4);
+}
+
+.pair-body { padding: var(--s-3); display: flex; flex-direction: column; gap: 4px; }
+.pair-shop { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.pair-price { font-family: var(--font-mono); font-size: 15px; }
+.pair-name { font-size: 11px; color: var(--ink-3); line-height: 1.35; }
+
+.pair-more { border-top: 1px solid var(--rule-faint); }
+.pair-more summary {
+  cursor: pointer; padding: 6px var(--s-3);
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-4);
+  list-style: none;
+}
+.pair-more summary::-webkit-details-marker { display: none; }
+.pair-more summary:hover { color: var(--ink-2); background: var(--paper-3); }
+.pair-more .pair-detail { padding: 0 var(--s-3) var(--s-3); font-size: 11px; }
+
+.pair-diff { display: flex; flex-direction: column; gap: 3px; }
+.pair-diff-row { display: grid; grid-template-columns: 84px 1fr; gap: 6px; align-items: baseline; }
+.pair-diff-row .k { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); }
+
+.pair-canon {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-2);
+  position: sticky;
+  top: var(--s-4);
+}
+.pair-canon-image { height: 220px; background: var(--paper); display: flex;
+  align-items: center; justify-content: center; padding: var(--s-3);
+  border-bottom: 1px solid var(--rule-faint); }
+.pair-canon-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.pair-bar {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3) 0;
+  margin-top: var(--s-4);
+  background: linear-gradient(to top, var(--paper) 70%, transparent);
+}

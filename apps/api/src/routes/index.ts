@@ -6,6 +6,7 @@ import { authRoutes } from './auth.js';
 import { productRoutes } from './products.js';
 import { shopRoutes } from './shops.js';
 import { reviewRoutes } from './review.js';
+import { reviewBatchRoutes } from './review-batch.js';
 import { dashboardRoutes } from './dashboard.js';
 import { importRoutes } from './imports.js';
 import { settingsRoutes } from './settings.js';
@@ -80,6 +81,7 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
     await searchRoutes(api, config);
     await productRoutes(api, config);
     await shopRoutes(api, config);
+    await reviewBatchRoutes(api, config);
     await reviewRoutes(api, config);
     await dashboardRoutes(api, config);
     await importRoutes(api, config);

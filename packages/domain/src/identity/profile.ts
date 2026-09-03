@@ -16,6 +16,9 @@ export const DEFAULT_IDENTITY_PROFILE: IdentityProfile = {
   not_applicable: [],
   vintageSensitive: true,
   gtinResolvesVintage: false,
+  // Alapertelmezes: URES. Egy ismeretlen kategoriaban nincs jogunk ember
+  // nelkul donteni - a hallgatas nem jelenthet engedelyt.
+  identity_core: [],
 };
 
 export const DEFAULT_COMPARISON_POLICY: ComparisonPolicy = {
@@ -91,6 +94,14 @@ export class ResolvedIdentityProfile {
     return this.profile.required.map(canonicalFieldName);
   }
 
+  /**
+   * Az azonossagmag belso mezonevekre forditva. Ures lista eseten a
+   * kategoriaban nincs automatikus jovahagyas.
+   */
+  get identityCoreFields(): string[] {
+    return (this.profile.identity_core ?? []).map(canonicalFieldName);
+  }
+
   get comparableFields(): string[] {
     const out = new Set<string>();
     for (const [field, role] of this.roles) if (role !== 'not_applicable') out.add(field);
@@ -131,6 +142,7 @@ export function resolveIdentityProfile(sources: ProfileSources): ResolvedIdentit
   profile.contradiction_only = pickArray(sources.variantProfile?.contradiction_only, sources.categoryProfile?.contradiction_only, DEFAULT_IDENTITY_PROFILE.contradiction_only);
   profile.supporting = pickArray(sources.variantProfile?.supporting, sources.categoryProfile?.supporting, DEFAULT_IDENTITY_PROFILE.supporting);
   profile.not_applicable = pickArray(sources.variantProfile?.not_applicable, sources.categoryProfile?.not_applicable, DEFAULT_IDENTITY_PROFILE.not_applicable);
+  profile.identity_core = pickArray(sources.variantProfile?.identity_core, sources.categoryProfile?.identity_core, DEFAULT_IDENTITY_PROFILE.identity_core ?? []);
 
   const policy: ComparisonPolicy = {
     ...DEFAULT_COMPARISON_POLICY,

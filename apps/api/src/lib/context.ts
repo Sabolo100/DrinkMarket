@@ -134,13 +134,15 @@ export async function getFlag(key: string, fallback = false): Promise<boolean> {
 
 /** Az aktualis matching policy osszeallitasa a beallitasokbol. */
 export async function currentMatchPolicy(): Promise<MatchPolicy> {
-  const [thresholds, weights, matcherVersion, taxonomyVersion, policyVersion, autoMatch, identifierOnly] =
+  const [thresholds, weights, matcherVersion, taxonomyVersion, policyVersion,
+         autoMatch, identifierOnly, identityComplete] =
     await Promise.all([
       getSetting('matching.thresholds', {
         autoMatch: { evidenceCoverage: 0.9, extractionQuality: 0.9, agreementScore: 0.96, topMargin: 0.1 },
         review: { minScore: 0.7 },
         ambiguousMargin: 0.03,
         volumeToleranceMl: 5,
+        priceRatioMax: 3.0,
       }),
       getSetting<Record<string, number>>('matching.field_weights', {
         producer: 0.18, expression: 0.28, vintage: 0.16, volume: 0.16,
@@ -151,6 +153,7 @@ export async function currentMatchPolicy(): Promise<MatchPolicy> {
       getSetting('policy.version', '2.1.0'),
       getFlag('auto_match', false),
       getFlag('auto_match_identifier_only', true),
+      getFlag('auto_match_identity_complete', false),
     ]);
 
   return {
@@ -159,7 +162,14 @@ export async function currentMatchPolicy(): Promise<MatchPolicy> {
     policyVersion: String(policyVersion),
     autoMatchEnabled: autoMatch,
     autoMatchIdentifierOnly: identifierOnly,
-    thresholds: thresholds as MatchPolicy['thresholds'],
+    autoMatchIdentityComplete: identityComplete,
+    // Osszefesules: egy regebbi sema szerint mentett sor nem tartalmazza a
+    // kesobb bevezetett kuszoboket, es azok `undefined`-kent csendben
+    // kikapcsolnanak minden rajuk epulo szabalyt.
+    thresholds: {
+      ...(thresholds as MatchPolicy['thresholds']),
+      priceRatioMax: (thresholds as Partial<MatchPolicy['thresholds']>).priceRatioMax ?? 3.0,
+    },
     fieldWeights: weights,
   };
 }

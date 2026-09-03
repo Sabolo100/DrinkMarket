@@ -242,6 +242,35 @@ async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
       if (ok) bump('research');
     }
 
+    // ── 3b. Klaszterezesi hatralek sopres ───────────────────────────────
+    //
+    // Enelkul a hatralek SOHA nem indul el magatol: a `cluster-listing` job
+    // kizarolag esemenyre keletkezik (felderites vege, ujrakinyeres, kezi
+    // keres). Ami korabban kimaradt, az orokre `unclustered` marad.
+    //
+    // A sopres kotegelt es folytathato - a `cluster_status` maga a kurzor -,
+    // ezert eleg tickenkent egyszer inditani.
+    const unclustered = await query<{ count: number }>(
+      `SELECT count(*)::int AS count
+         FROM source_listings sl
+         JOIN shops s ON s.id = sl.shop_id
+        WHERE sl.listing_status = 'active'
+          AND sl.cluster_status = 'unclustered'
+          AND s.active AND NOT s.policy_disabled`,
+    );
+    if ((unclustered[0]?.count ?? 0) > 0) {
+      const ok = await schedule({
+        redisUrl, queue: 'candidate-generation', name: 'cluster-sweep',
+        payload: { limit: 300, correlationId },
+        idempotencyKey: 'cluster:sweep',
+        priority: 7,
+      });
+      if (ok) {
+        bump('cluster_sweep');
+        logger.info('scheduler.cluster_sweep', { hatralek: unclustered[0]?.count ?? 0 });
+      }
+    }
+
     // ── 4. Health check azoknal, ahol regen volt ────────────────────────
     const dueHealth = await query<{ id: string; key: string }>(
       `SELECT id, key FROM shops

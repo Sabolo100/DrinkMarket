@@ -87,6 +87,22 @@ export interface IdentityProfile {
   vintageSensitive: boolean;
   /** Feloldhatja-e a GTIN-egyezés az évjáratot? Bornál SOHA (spec 10.2). */
   gtinResolvesVintage: boolean;
+  /**
+   * AZONOSSÁGMAG: azok a mezők, amiket a gépnek BIZONYÍTOTTAN egyezőnek kell
+   * látnia mindkét oldalon, mielőtt ember nélkül dönthet.
+   *
+   * Ez nem ugyanaz, mint a `required` vagy a `contradiction_only`. A
+   * `contradiction_only` azt mondja: "ha ismert és eltér, kizár" — ebbe a
+   * GTIN és a fantázianév is beletartozik, amik hiánya viszont teljesen
+   * normális. Az azonosságmag szűkebb és mást kérdez: mi az, aminek az
+   * ismerete nélkül nincs jogunk emberi ellenőrzés nélkül dönteni.
+   *
+   * Bornál ez a felhasználó domainmodellje: borászat + fajta + szín (a
+   * bortípus ezt mondja ki) + évjárat, kiegészítve a fizikai kiszereléssel.
+   *
+   * Üres lista = ebben a kategóriában nincs automatikus jóváhagyás.
+   */
+  identity_core?: string[];
   notes?: string;
 }
 
@@ -504,6 +520,17 @@ export interface ScoredCandidate {
   decisionStrength: number;
   topMargin: number;
   reasonCodes: string[];
+  /**
+   * MINDEN azonossághordozó mező bizonyítottan egyezik - nem `unknown`, nem
+   * `contradiction`. Ez erősebb állítás, mint a magas pontszám, és nem is
+   * ugyanaz: egy 0.97-es pontszám állhat két ismert mezőből is.
+   */
+  identityComplete: boolean;
+  /**
+   * A két ár hányadosa (nagyobb / kisebb), ha mindkettő ismert. Nem az
+   * azonosság bizonyítéka - csak az automatikus jóváhagyás őre.
+   */
+  priceRatio: number | null;
 }
 
 export interface MatchDecisionResult {
@@ -533,6 +560,10 @@ export interface MatchDecisionResult {
   retrievalSupport: number | null;
   topMargin: number | null;
   decisionStrength: number | null;
+  /** Minden azonossághordozó bizonyítottan egyezik-e. */
+  identityComplete?: boolean;
+  /** A két ár hányadosa, ha mindkettő ismert. Nem az azonosság bizonyítéka. */
+  priceRatio?: number | null;
   contradictionCount: number;
   negativeHistory: number;
   reasonCodes: string[];
@@ -551,6 +582,13 @@ export interface MatchPolicy {
   policyVersion: string;
   autoMatchEnabled: boolean;
   autoMatchIdentifierOnly: boolean;
+  /**
+   * Külön út az automatikus jóváhagyáshoz: TELJES bizonyított azonosság
+   * esetén, erős azonosító (GTIN) nélkül is. Bornál ez az egyetlen járható
+   * út, mert ugyanaz az EAN több évjáratot is átfog - ezért mondja ki a bor
+   * profilja, hogy `gtinResolvesVintage: false`.
+   */
+  autoMatchIdentityComplete: boolean;
   thresholds: {
     autoMatch: {
       evidenceCoverage: number;
@@ -561,6 +599,13 @@ export interface MatchPolicy {
     review: { minScore: number };
     ambiguousMargin: number;
     volumeToleranceMl: number;
+    /**
+     * E fölött az árarány fölött nincs automatikus jóváhagyás. NEM elutasítás:
+     * a pár emberi döntésre megy. A belépő és a prémium tétel ugyanattól a
+     * borászattól sokszorosan eltér, egy valódi bolti árkülönbség viszont
+     * ritkán megy 2-3x fölé.
+     */
+    priceRatioMax: number;
   };
   fieldWeights: Record<string, number>;
 }
@@ -599,6 +644,18 @@ export const REASON_CODES = {
   REQUIRED_FIELD_UNKNOWN: 'REQUIRED_FIELD_UNKNOWN',
   LOW_EVIDENCE_COVERAGE: 'LOW_EVIDENCE_COVERAGE',
   LOW_EXTRACTION_QUALITY: 'LOW_EXTRACTION_QUALITY',
+  // Hard ellentmondás - a bor azonossághordozói (eddig nyers literálként éltek)
+  WINE_STYLE_MISMATCH: 'WINE_STYLE_MISMATCH',
+  VINEYARD_MISMATCH: 'VINEYARD_MISMATCH',
+  GRAPE_MISMATCH: 'GRAPE_MISMATCH',
+  FLAVOUR_MISMATCH: 'FLAVOUR_MISMATCH',
+  AGING_MISMATCH: 'AGING_MISMATCH',
+  // Puha jelzés - nem zár ki, csak gyengíti a bizonyítást
+  COLOUR_MISMATCH: 'COLOUR_MISMATCH',
+  REGION_MISMATCH: 'REGION_MISMATCH',
+  COUNTRY_MISMATCH: 'COUNTRY_MISMATCH',
+  SWEETNESS_MISMATCH: 'SWEETNESS_MISMATCH',
+  GRAPE_TEXT_MISMATCH: 'GRAPE_TEXT_MISMATCH',
   // Döntési
   SMALL_TOP_MARGIN: 'SMALL_TOP_MARGIN',
   MULTIPLE_SIMILAR_VARIANTS: 'MULTIPLE_SIMILAR_VARIANTS',
@@ -623,6 +680,14 @@ export const REASON_CODES = {
   // Ár
   PRICE_ANOMALY: 'PRICE_ANOMALY',
   PRICE_NOT_COMPARABLE: 'PRICE_NOT_COMPARABLE',
+  /**
+   * Az árarány annyira kiugró, hogy az azonosság gyanús - de ez SOHA nem
+   * utasít el, csak az automatikus jóváhagyást tiltja. A rendszer terméke
+   * épp az árkülönbség; egy valódi 30%-os előnyt eldobni önveszélyes lenne.
+   */
+  PRICE_RATIO_IMPLAUSIBLE: 'PRICE_RATIO_IMPLAUSIBLE',
+  /** Minden azonossághordozó mező bizonyítottan egyezik mindkét oldalon. */
+  IDENTITY_COMPLETE: 'IDENTITY_COMPLETE',
 } as const;
 
 export type ReasonCode = (typeof REASON_CODES)[keyof typeof REASON_CODES];
@@ -675,6 +740,18 @@ export const REASON_CODE_HU: Record<string, string> = {
   LISTING_MISSING: 'A listing eltűnt',
   PRICE_ANOMALY: 'Áranomália',
   PRICE_NOT_COMPARABLE: 'Az ár nem összehasonlítható',
+  PRICE_RATIO_IMPLAUSIBLE: 'Az árak aránya kiugró - emberi ellenőrzés kell',
+  IDENTITY_COMPLETE: 'Minden azonossághordozó bizonyítottan egyezik',
+  WINE_STYLE_MISMATCH: 'Eltérő bortípus',
+  VINEYARD_MISMATCH: 'Eltérő dűlő',
+  GRAPE_MISMATCH: 'Eltérő szőlőfajta',
+  FLAVOUR_MISMATCH: 'Eltérő ízesítés',
+  AGING_MISMATCH: 'Eltérő érlelés',
+  COLOUR_MISMATCH: 'Eltérő szín',
+  REGION_MISMATCH: 'Eltérő régió',
+  COUNTRY_MISMATCH: 'Eltérő származási ország',
+  SWEETNESS_MISMATCH: 'Eltérő édességi fok',
+  GRAPE_TEXT_MISMATCH: 'A fajtanevek szövegesen eltérnek',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

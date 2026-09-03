@@ -35,6 +35,7 @@
     "test:e2e": "vitest run tests/e2e",
     "wine:report": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-report.ts",
     "wine:apply": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-apply-report.ts",
+    "match:triage": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/triage-report.ts",
     "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts"
   },
   "devDependencies": {

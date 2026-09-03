@@ -49,6 +49,7 @@ export interface VariantRow {
   wine_region_id: string | null;
   grape_signature: string | null;
   grape_ids: string[] | null;
+  reference_price_huf: number | null;
   category_key: string;
   category_identity_profile: Record<string, unknown>;
   category_comparison_policy: Record<string, unknown>;
@@ -60,7 +61,7 @@ export const VARIANT_QUERY = `
          cv.cask_finish, cv.dosage_style, cv.sweetness, cv.puttony, cv.abv_percent,
          cv.gtin_normalized, cv.identity_profile_json, cv.comparison_policy_json,
          cv.wine_style_id, cv.vineyard_id, cv.wine_region_id, cv.grape_signature,
-         cvg.ids AS grape_ids,
+         cvg.ids AS grape_ids, refp.price AS reference_price_huf,
          pf.producer_id, pf.brand_id, pf.product_line, pf.region, pf.colour,
          pf.origin_country, pf.grape_varieties,
          pr.canonical_name AS producer_name, br.canonical_name AS brand_name,
@@ -77,6 +78,18 @@ export const VARIANT_QUERY = `
         FROM canonical_variant_grapes g
        WHERE g.canonical_variant_id = cv.id
     ) cvg ON true
+    -- Viszonyitasi ar: a mar IGAZOLT boltok legolcsobb osszehasonlithato ara.
+    -- Csak az automatikus jovahagyas oreként hasznaljuk; az azonossagot nem
+    -- bizonyitja es nem cafolja.
+    LEFT JOIN LATERAL (
+      SELECT min(o.selected_comparable_price_huf) AS price
+        FROM match_relations mr
+        JOIN source_listings sl2 ON sl2.id = mr.source_listing_id
+        JOIN offer_observations o ON o.id = sl2.latest_offer_id
+       WHERE mr.canonical_variant_id = cv.id
+         AND mr.status = 'verified' AND mr.valid_to IS NULL
+         AND o.comparable AND NOT o.quarantined
+    ) refp ON true
 `;
 
 export function variantIdentity(row: VariantRow): IdentityFields {
@@ -121,6 +134,7 @@ export function canonicalSide(row: VariantRow): CanonicalSide {
     // A kanonikus oldal import/kezi felvitelbol szarmazik: megbizhato
     extractionQuality: 1.0,
     identityHash: row.identity_hash ?? '',
+    referencePriceHuf: row.reference_price_huf,
   };
 }
 
@@ -399,37 +413,87 @@ export async function persistDecision(
     const needsReview =
       decision.status === 'needs_review' || decision.status === 'ambiguous';
 
-    if (needsReview && decision.sourceListingId) {
+    // Mar igazolt (valtozat, bolt) parra NEM nyitunk esetet. A dontes
+    // megszuletett; egy ujrafuttatas ebbol nem csinalhat ujra teendot -
+    // kulonben a sor magatol notte volna vissza magat minden korben.
+    const alreadyVerified = await client.query<{ id: string }>(
+      `SELECT id FROM match_relations
+        WHERE canonical_variant_id = $1 AND shop_id = $2
+          AND status = 'verified' AND valid_to IS NULL
+        LIMIT 1`,
+      [variant.id, shopId],
+    );
+
+    if (needsReview && decision.sourceListingId && !alreadyVerified.rows[0]) {
       const caseType = decision.status === 'ambiguous' ? 'ambiguous' : 'new_match';
-      const priority = decision.status === 'ambiguous' ? 20 : 50;
+      // A sorrend a hozamot koveti. A teljesen bizonyitott azonossagu eset -
+      // amit csak egy or (jellemzoen a kiugro ararany) tartott vissza - egy
+      // kattintassal lezarhato, es sokszor eppen az a legertekesebb talalat:
+      // vagy a legjobb ar a piacon, vagy egy hiba. Ezek menjenek elore.
+      const priority = decision.status === 'ambiguous' ? 20
+        : decision.identityComplete ? 30
+        : 50;
       const title = `${variant.canonical_display_name} <-> ${opts.shopKey}: ${
         decision.reasonCodes.map((c) => REASON_CODE_HU[c] ?? c).slice(0, 2).join(', ') || 'ellenorzes szukseges'
       }`;
 
-      const created = await client.query<{ id: string }>(
-        `INSERT INTO review_cases
-           (case_type, priority, status, canonical_variant_id, source_listing_id, shop_id,
-            match_decision_id, title, reason_codes, confidence, candidates, context, due_at)
-         VALUES ($1,$2,'open',$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,
-                 now() + interval '72 hours')
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [
-          caseType, priority, variant.id, decision.sourceListingId, shopId, decisionId,
-          title.slice(0, 300), decision.reasonCodes, decision.decisionStrength,
-          JSON.stringify(decision.runnerUp),
-          JSON.stringify({
-            explanation: decision.explanationHu,
-            fieldResults: decision.fieldResults,
-            agreementScore: decision.agreementScore,
-            evidenceCoverage: decision.evidenceCoverage,
-            extractionQuality: decision.extractionQuality,
-            topMargin: decision.topMargin,
-            candidateSources: decision.candidateSources,
-          }),
-        ],
+      const context = JSON.stringify({
+        explanation: decision.explanationHu,
+        fieldResults: decision.fieldResults,
+        agreementScore: decision.agreementScore,
+        evidenceCoverage: decision.evidenceCoverage,
+        extractionQuality: decision.extractionQuality,
+        topMargin: decision.topMargin,
+        candidateSources: decision.candidateSources,
+        priceRatio: decision.priceRatio ?? null,
+      });
+
+      // Egy valtozatot egy boltban egyszerre EGY nyitott eset kepvisel.
+      // Melyik listing a legjobb jelolt, az a dontes TARTALMA, nem az
+      // azonossaga - ezert egy ujrafuttatas frissiti a meglevo esetet, nem
+      // nyit masodikat. (A regi viselkedes miatt a sor magatol nott.)
+      //
+      // Kifejezett keres-majd-ir, mert az egyedi index reszleges es
+      // kifejezes-alapu; az `ON CONFLICT` inferencia ott nehezen olvashato.
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM review_cases
+          WHERE case_type = $1 AND canonical_variant_id = $2 AND shop_id = $3
+            AND status IN ('open','in_progress','deferred')
+          LIMIT 1`,
+        [caseType, variant.id, shopId],
       );
-      reviewCaseId = created.rows[0]?.id ?? null;
+
+      if (existing.rows[0]) {
+        reviewCaseId = existing.rows[0].id;
+        await client.query(
+          `UPDATE review_cases SET
+             source_listing_id = $2, match_decision_id = $3, title = $4,
+             reason_codes = $5, confidence = $6, candidates = $7::jsonb,
+             context = $8::jsonb, priority = $9, row_version = row_version + 1
+           WHERE id = $1`,
+          [
+            reviewCaseId, decision.sourceListingId, decisionId, title.slice(0, 300),
+            decision.reasonCodes, decision.decisionStrength,
+            JSON.stringify(decision.runnerUp), context, priority,
+          ],
+        );
+      } else {
+        const created = await client.query<{ id: string }>(
+          `INSERT INTO review_cases
+             (case_type, priority, status, canonical_variant_id, source_listing_id, shop_id,
+              match_decision_id, title, reason_codes, confidence, candidates, context, due_at)
+           VALUES ($1,$2,'open',$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,
+                   now() + interval '72 hours')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [
+            caseType, priority, variant.id, decision.sourceListingId, shopId, decisionId,
+            title.slice(0, 300), decision.reasonCodes, decision.decisionStrength,
+            JSON.stringify(decision.runnerUp), context,
+          ],
+        );
+        reviewCaseId = created.rows[0]?.id ?? null;
+      }
 
       // A jelolt listing allapota: review-ban
       await client.query(
@@ -500,6 +564,7 @@ export async function evaluateListingForClustering(opts: {
     colour: string | null; region: string | null; grape_varieties: string[] | null;
     wine_style_id: string | null; vineyard_id: string | null; wine_region_id: string | null;
     grape_signature: string | null; grape_ids: string[] | null;
+    price_huf: number | null;
   }>(
     `SELECT sl.id, sl.shop_id, s.key AS shop_key, sl.raw_name, sl.normalized_name,
             sl.identity_hash, sl.extraction_quality, sl.canonical_url,
@@ -509,10 +574,11 @@ export async function evaluateListingForClustering(opts: {
             sl.puttony, sl.abv_percent, sl.gtin_normalized,
             sl.colour, sl.region, sl.grape_varieties,
             sl.wine_style_id, sl.vineyard_id, sl.wine_region_id, sl.grape_signature,
-            slg.ids AS grape_ids,
+            slg.ids AS grape_ids, o.selected_comparable_price_huf AS price_huf,
             pr.canonical_name AS producer_name, br.canonical_name AS brand_name
        FROM source_listings sl
        JOIN shops s ON s.id = sl.shop_id
+       LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id
        LEFT JOIN product_categories pc ON pc.id = sl.category_id
        LEFT JOIN producers pr ON pr.id = sl.producer_id
        LEFT JOIN brands br ON br.id = sl.brand_id
@@ -572,6 +638,7 @@ export async function evaluateListingForClustering(opts: {
     normalizedName: listing.normalized_name, identityHash: listing.identity_hash ?? '',
     extractionQuality: listing.extraction_quality ?? 0, evidence: {},
     url: listing.canonical_url,
+    priceHuf: listing.price_huf,
     channels: [{ channel: 'catalog_block', rank: 1, score: 0.8 }],
   };
 

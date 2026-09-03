@@ -54,11 +54,13 @@ const POLICY: MatchPolicy = {
   policyVersion: '2.1.0',
   autoMatchEnabled: true,           // a tesztekben BEKAPCSOLVA, hogy bizonyithato legyen,
   autoMatchIdentifierOnly: false,   // hogy a hard gate akkor is fog
+  autoMatchIdentityComplete: false, // ezeket a regresszios eseteket a REGI ut fedi
   thresholds: {
     autoMatch: { evidenceCoverage: 0.9, extractionQuality: 0.9, agreementScore: 0.96, topMargin: 0.1 },
     review: { minScore: 0.7 },
     ambiguousMargin: 0.03,
     volumeToleranceMl: 5,
+    priceRatioMax: 3.0,
   },
   fieldWeights: {
     producer: 0.18, expression: 0.28, vintage: 0.16, volume: 0.16,
