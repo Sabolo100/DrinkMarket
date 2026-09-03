@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { HealthChip, ShopDot } from '@/components/Signals';
-import { ShopActions } from '@/components/Actions';
+import { ShopActions, ShopActiveToggle } from '@/components/Actions';
 import { apiSafe, ago, dateTime, num, requireSession } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
@@ -164,6 +164,8 @@ export default async function ShopsPage() {
                   </td>
                   {canManage && (
                     <td className="right">
+                      <ShopActiveToggle shopId={shop.id} csrfToken={session.csrfToken}
+                                        active={shop.active} />
                       <ShopActions shopId={shop.id} csrfToken={session.csrfToken}
                                    disabled={shop.policy_disabled} />
                     </td>

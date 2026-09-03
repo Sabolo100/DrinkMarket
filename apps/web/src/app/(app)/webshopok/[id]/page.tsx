@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PageHead } from '@/components/Shell';
 import { HealthChip, ShopDot } from '@/components/Signals';
-import { ShopActions } from '@/components/Actions';
+import { ShopActions, ShopActiveToggle } from '@/components/Actions';
 import { ApiError, api, apiSafe, ago, dateTime, huf, num, pct, requireSession } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
@@ -60,6 +60,10 @@ export default async function ShopDetailPage({ params }: { params: Promise<{ id:
           <>
             <Link className="btn btn-sm" href={`/termektar?shopId=${id}`}>Terméktár</Link>
             <Link className="btn btn-sm" href={`/?anchorShopId=${id}`}>Kiinduló webshopként</Link>
+            {canManage && (
+              <ShopActiveToggle shopId={id} csrfToken={session.csrfToken}
+                                active={Boolean(s['active'])} />
+            )}
             {canManage && <ShopActions shopId={id} csrfToken={session.csrfToken}
                                         disabled={Boolean(s['policy_disabled'])} />}
           </>

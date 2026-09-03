@@ -119,6 +119,22 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
     if (!updates.length) return { ok: true, changed: 0 };
 
     await execute(`UPDATE shops SET ${updates.join(', ')} WHERE id = $1`, params);
+
+    // Az `active` jelzo a piaci publikaciot kapuzza: egy inaktiv bolt
+    // ajanlatai nem kerulnek ki. Ha ez most valtozott, a piacot ujra kell
+    // epiteni - kulonben a felhasznalo aktival, es egy oraig (a scheduler
+    // kovetkezo koreig) semmi nem tortenik a fooldalon.
+    if (body.active !== undefined && body.active !== (before as { active?: boolean }).active) {
+      await enqueue({
+        redisUrl: config.REDIS_URL,
+        queue: 'aggregate-dashboard', name: 'rebuild',
+        payload: { trigger: 'shop_active_changed' },
+        idempotencyKey: `aggregate:rebuild:shop:${Math.floor(Date.now() / 30_000)}`,
+        delayMs: 10_000,
+        correlationId: req.correlationId,
+      }).catch(() => undefined);
+    }
+
     await audit({
       actorUserId: actor.id, action: 'shop.updated', entityType: 'shop', entityId: id,
       before, after: body, correlationId: req.correlationId,

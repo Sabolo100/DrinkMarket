@@ -56,7 +56,67 @@ function useAction(csrfToken: string) {
     setBusy(null);
   }
 
-  return { busy, message, error, post };
+  async function patch(path: string, body: unknown, label: string, key: string) {
+    setBusy(key); setError(null); setMessage(null);
+    try {
+      const res = await fetch(`/api/v1${path}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+        body: JSON.stringify(body ?? {}),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) setError(data?.error?.message ?? 'A művelet nem sikerült.');
+      else {
+        setMessage(label);
+        setTimeout(() => router.refresh(), 600);
+      }
+    } catch {
+      setError('A kiszolgáló nem elérhető.');
+    }
+    setBusy(null);
+  }
+
+  return { busy, message, error, post, patch };
+}
+
+/**
+ * Webshop aktiválása és szüneteltetése.
+ *
+ * Ez a kapcsoló eddig hiányzott, holott az `active` jelző négy helyen kapuz:
+ * a piaci publikáció, a klaszterezési söprés, a bolt-közi keresés és a
+ * bolt-lista mind megköveteli. Egy inaktív webshop begyűjtött termékei tehát
+ * SOHA nem jelennek meg az ár-összehasonlításban - a felületen viszont csak
+ * annyi látszott, hogy „inaktív", átkapcsolni pedig nem lehetett sehol.
+ */
+export function ShopActiveToggle({
+  shopId, csrfToken, active,
+}: { shopId: string; csrfToken: string; active: boolean }) {
+  const { busy, message, error, patch } = useAction(csrfToken);
+
+  return (
+    <span className="row-tight" style={{ gap: 6 }}>
+      {(message || error) && (
+        <span className="freshness" style={{ color: error ? 'var(--rust)' : 'var(--verdigris)' }}>
+          {error ?? message}
+        </span>
+      )}
+      <button
+        className={`btn btn-sm ${active ? 'btn-ghost' : 'btn-approve'}`}
+        disabled={busy !== null}
+        title={active
+          ? 'Szüneteltetés: a webshop ajánlatai kikerülnek az ár-összehasonlításból.'
+          : 'Aktiválás: enélkül a webshop termékei nem jelennek meg az ár-összehasonlításban.'}
+        onClick={() => patch(
+          `/shops/${shopId}`,
+          { active: !active },
+          active ? 'Szüneteltetve.' : 'Aktiválva.',
+          'active',
+        )}
+      >
+        {busy === 'active' ? '…' : (active ? 'Szüneteltetés' : 'Aktiválás')}
+      </button>
+    </span>
+  );
 }
 
 export function ShopActions({
