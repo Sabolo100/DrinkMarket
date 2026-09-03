@@ -408,6 +408,44 @@ export async function persistDecision(
       ],
     );
 
+    // ── A mar NYITOTT eset lezarasa, ha a gep kozben biztos lett ─────────
+    //
+    // Enelkul az automatika sosem csokkentene a sort: az eset akkor
+    // keletkezett, amikor a gep nem tudott donteni, es nyitva maradna akkor
+    // is, ha kesobb - egy jovahagyott boraszattal, egy kitoltott fajtaval -
+    // mar tud. Az ember ugyanazt latna, amit a rendszer mar eldontott.
+    //
+    // Csak a MEG NEM ERINTETT (`open`) eseteket zarjuk. Amit valaki elkezdett
+    // (`in_progress`) vagy tudatosan elhalasztott (`deferred`), ahhoz nem
+    // nyulunk - az emberi szandek erosebb.
+    if (decision.status === 'auto_verified' || decision.status === 'rejected') {
+      const note = decision.status === 'auto_verified'
+        ? 'A gep idokozben teljes bizonyitott azonossagot talalt.'
+        : 'A gep idokozben kizaro ellentmondast talalt.';
+      const closed = await client.query<{ id: string }>(
+        `UPDATE review_cases
+            SET status = 'resolved', resolution = 'auto_resolved',
+                resolution_note = $3, resolved_at = now(),
+                row_version = row_version + 1
+          WHERE canonical_variant_id = $1 AND shop_id = $2 AND status = 'open'
+        RETURNING id`,
+        [variant.id, shopId, note],
+      );
+      for (const c of closed.rows) {
+        await client.query(
+          `INSERT INTO review_case_events (review_case_id, action, note)
+           VALUES ($1, 'auto_resolved', $2)`,
+          [c.id, `${note} (${decision.reasonCodes.slice(0, 3).join(', ')})`],
+        );
+      }
+      if (closed.rows.length) {
+        logger.info('review.auto_resolved', {
+          canonicalVariantId: variant.id, shopId,
+          esetek: closed.rows.length, allapot: decision.status,
+        });
+      }
+    }
+
     // ── Review case, ha emberi dontes kell (spec 24.) ────────────────────
     let reviewCaseId: string | null = null;
     const needsReview =
