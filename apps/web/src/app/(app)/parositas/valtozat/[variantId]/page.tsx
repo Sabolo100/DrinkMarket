@@ -93,7 +93,7 @@ export default async function VariantReviewPage({
     return (
       <>
         <PageHead title="Párosítás" lede="A termékváltozat nem található." />
-        <Link href="/parositas" className="btn btn-sm">Vissza a sorhoz</Link>
+        <Link href="/parositas/valtozatok" className="btn btn-sm">Vissza a sorhoz</Link>
       </>
     );
   }
@@ -116,7 +116,11 @@ export default async function VariantReviewPage({
       <PageHead
         title={c.canonical_display_name}
         lede={`${data.cases.length} webshop vár döntésre. ${data.verified.length} már igazolt.`}
-        actions={<Link href="/parositas" className="btn btn-sm btn-ghost">Vissza a sorhoz</Link>}
+        actions={
+          <Link href="/parositas/valtozatok" className="btn btn-sm btn-ghost">
+            Vissza a sorhoz
+          </Link>
+        }
       />
 
       <div className="pair-layout">

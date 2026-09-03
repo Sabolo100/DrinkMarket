@@ -9,7 +9,7 @@
  */
 import type { AvailabilityStatus, Evidence, EvidenceMap, PriceSnapshot } from '@radovin/contracts';
 import { emptyPriceSnapshot } from '@radovin/contracts';
-import { parseMoney, toHuf } from '@radovin/domain';
+import { parseMoney, searchNorm, toHuf } from '@radovin/domain';
 import { findTags, stripTags, metaContent } from './html.js';
 import type { JsonLdProduct } from './jsonld.js';
 import { mapAvailability } from './jsonld.js';
@@ -44,6 +44,23 @@ const COUPON_PRICE_HINTS = /\b(kupon|coupon|kod(?:dal)?|promo\s*kod|voucher)\b/i
 const QUANTITY_PRICE_HINTS = /\b(\d+\s*db\s*felett|mennyisegi|nagyker|karton\s*ar|bulk)\b/i;
 const DEPOSIT_HINTS = /\b(betetdij|visszavalt(?:asi)?|uveg\s*betet|deposit)\b/i;
 const UNIT_PRICE_HINTS = /\b(egysegar|egyseg\s*ar|\/\s*l\b|\/\s*liter|ft\s*\/\s*l)\b/i;
+
+/**
+ * NEM a termek ara, hanem az oldal kerete.
+ *
+ * A magyar webshopok szinte mindegyike kiir egy szallitasi kuszobot
+ * ("Ingyenes szallitas 15 000 Ft felett"). Ez a szam MINDEN termekoldalon ott
+ * all, ugyanazzal az ertekkel - ezert egy elrontott kinyeres nem egyetlen
+ * hibas arat ad, hanem tobb szaz termeknek UGYANAZT a hamis arat.
+ *
+ * Egy hamis ar rosszabb, mint egy hianyzo: a hianyzot a rendszer
+ * "nem osszehasonlithato"-kent kezeli es nem publikalja, a hamisat viszont
+ * kiteszi a piacra.
+ *
+ * A vizsgalat `searchNorm`-mal fut, tehat ekezet nelkuli alakra illeszkedik.
+ */
+const NOT_A_PRICE_HINTS =
+  /(ingyen|dijmentes|szallitas|kiszallitas|utanvet|csomagolas|kosar|kupon|utalvany)|(\bfelett\b|\bfeletti\b|\bfolott\b|\bfolotti\b|\bminimum\b|\bmin\.\s|\btol\b)/;
 
 /**
  * Ar kinyerese a rendelkezesre allo forrasokbol, prioritasi sorrendben:
@@ -236,6 +253,10 @@ export function extractDomPrices(html: string): DomPriceResult {
     if (!m) continue;
     const value = parseMoney(m[1] ?? '');
     if (value === null || value <= 0) continue;
+    // Az oldal kerete (szallitasi kuszob, kosarertek) nem ar. Fontos, hogy ez
+    // MAR ITT kiessen: kulonben jeloltnek szamitana, es elnyelne a vegso
+    // tartalekot, amivel a valodi ar sosem kerulne elo.
+    if (NOT_A_PRICE_HINTS.test(searchNorm(text))) continue;
     candidates.push({
       value: Math.round(value), raw: m[0] ?? '', context: text, classes,
       weight: classifyWeight(classes, text, el.tag),
@@ -243,16 +264,32 @@ export function extractDomPrices(html: string): DomPriceResult {
   }
 
   if (!candidates.length) {
-    // Vegso fallback: a nyers szovegben szereplo elso hihetozo ar
+    // Vegso tartalek: a nyers oldalszovegbol.
+    //
+    // Korabban ez az ELSO "... Ft" szamot vette. Magyar webshopon az
+    // jellemzoen a szallitasi kuszob ("Ingyenes szallitas 15 000 Ft felett"),
+    // ami minden termekoldalon ugyanaz - igy tobb szaz termek kapta ugyanazt
+    // a hamis arat.
+    //
+    // Most vegigmegyunk a talalatokon, es kihagyjuk azt, aminek a
+    // KORNYEZETE keretszovegre utal. Ha egy sem marad, inkabb nem allitunk
+    // semmit: a hianyzo arat a rendszer "nem osszehasonlithato"-kent kezeli,
+    // a hamisat viszont kiteszi a piacra.
     const text = stripTags(html);
     PRICE_TEXT_RE.lastIndex = 0;
-    const m = PRICE_TEXT_RE.exec(text);
-    if (m) {
+    for (let m = PRICE_TEXT_RE.exec(text); m; m = PRICE_TEXT_RE.exec(text)) {
       const value = parseMoney(m[1] ?? '');
-      if (value !== null && value >= 200) {
-        out.current = Math.round(value);
-        out.currentRaw = m[0] ?? null;
-      }
+      if (value === null || value < 200) continue;
+      // A kornyezet CSAK az utolso mondat lehet. Egy szeles ablak atnyulna a
+      // szomszedos feliratra, es a szallitasi savval egyutt kilone a mogotte
+      // allo VALODI arat is.
+      const before = text.slice(Math.max(0, m.index - 60), m.index);
+      const segment = before.split(/[.!?|]/).pop() ?? before;
+      const after = text.slice(m.index + (m[0]?.length ?? 0), m.index + (m[0]?.length ?? 0) + 24);
+      if (NOT_A_PRICE_HINTS.test(searchNorm(`${segment} ${after}`))) continue;
+      out.current = Math.round(value);
+      out.currentRaw = m[0] ?? null;
+      break;
     }
     return out;
   }

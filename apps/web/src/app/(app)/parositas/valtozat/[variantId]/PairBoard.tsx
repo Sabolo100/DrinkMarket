@@ -132,7 +132,10 @@ export function PairBoard({ cases, cheapest, canonical, reasonLabels, csrfToken,
         setMessage(n === 0
           ? `${data.applied} döntés mentve.`
           : `${data.applied} mentve, ${n} nem sikerült — töltsd újra az oldalt.`);
-        if (n === 0) setTimeout(() => router.push('/parositas'), 800);
+        // A termekenkenti nezetbe terunk vissza, nem a klasszikus listaba.
+        // Aki ezt a nezetet valasztotta, azt akarja folytatni - egy dontes
+        // utan visszadobni a masik nezetbe elveszi a valasztast.
+        if (n === 0) setTimeout(() => router.push('/parositas/valtozatok'), 800);
         else router.refresh();
       }
     } catch {
