@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { PageHead } from '@/components/Shell';
 import { HealthChip, ShopDot } from '@/components/Signals';
 import { ShopActions } from '@/components/Actions';
-import { api, apiSafe, ago, dateTime, huf, num, pct, requireSession } from '@/lib/api';
+import { ApiError, api, apiSafe, ago, dateTime, huf, num, pct, requireSession } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,8 +19,13 @@ export default async function ShopDetailPage({ params }: { params: Promise<{ id:
       recentRuns: Array<Record<string, unknown>>;
       pendingJobs?: Array<Record<string, unknown>>;
     }>(`/shops/${id}`);
-  } catch {
-    notFound();
+  } catch (err) {
+    // CSAK a valodi "nincs ilyen webshop" eset lehet 404. Minden mas hibat
+    // fel kell szinre hozni: egy elrontott lekerdezes eddig ugyanugy
+    // "A webshop nem talalhato" kepernyot adott, es emiatt honapokig
+    // lathatatlan maradhatott volna.
+    if (err instanceof ApiError && err.status === 404) notFound();
+    throw err;
   }
 
   const comparison = await apiSafe<{
@@ -234,7 +239,7 @@ export default async function ShopDetailPage({ params }: { params: Promise<{ id:
                   várakozó feladat addig sehol nem látszott. */}
               {(data.pendingJobs ?? []).map((j) => (
                 <tr key={`pending-${String(j['id'])}`} style={{ opacity: 0.75 }}>
-                  <td className="freshness">{dateTime(j['created_at'] as string)}</td>
+                  <td className="freshness">{dateTime(j['queued_at'] as string)}</td>
                   <td style={{ fontSize: 12 }}>{runTypeLabel(jobNameToRunType(String(j['job_name'])))}</td>
                   <td>
                     <span className="chip chip-neutral" title="A feladat sorban áll; a felderítést egyszerre két futás dolgozza fel.">

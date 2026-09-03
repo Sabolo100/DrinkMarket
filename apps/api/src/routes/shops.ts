@@ -58,10 +58,10 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
     // elveszett a kerese. A felderites sorat szandekosan ket parhuzamos job
     // dolgozza fel, ezert a varakozas normalis allapot.
     const pending = await query(
-      `SELECT id, queue, job_name, created_at, priority
+      `SELECT id, queue, job_name, queued_at, priority
          FROM job_runs
         WHERE shop_id = $1 AND status = 'queued'
-        ORDER BY created_at DESC LIMIT 10`,
+        ORDER BY queued_at DESC LIMIT 10`,
       [id],
     );
     return { shop, config: config_, recentRuns: runs, pendingJobs: pending };
