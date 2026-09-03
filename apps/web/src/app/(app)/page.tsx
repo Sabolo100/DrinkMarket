@@ -118,11 +118,17 @@ export default async function DashboardPage({
       {matrix.items.length === 0 ? (
         <div className="empty">
           <div className="display">Még nincs publikált összehasonlítás</div>
-          <p style={{ fontSize: 13, maxWidth: '56ch', margin: '0 auto' }}>
-            Az összehasonlító mátrix akkor telik meg, ha legalább egy webshop katalógusa
-            betöltődött, és a párosítások igazolttá váltak. Indíts egy felderítést a
-            <Link href="/webshopok"> Webshopok</Link> oldalon, vagy tölts fel terméklistát az
-            <Link href="/import"> Import</Link> alatt.
+          <p style={{ fontSize: 13, maxWidth: '62ch', margin: '0 auto' }}>
+            Nem kell teljes katalógus: <strong>egyetlen igazolt párosítás is megjelenik
+            itt</strong>. Ami hiányzik, az a párosítás — a begyűjtött termékek még nem
+            kapcsolódtak kanonikus termékváltozathoz.
+          </p>
+          <p style={{ fontSize: 13, maxWidth: '62ch', margin: '10px auto 0' }}>
+            Nézd meg a <Link href="/parositas">Párosítások ellenőrzése</Link> oldalt, vagy
+            ha még nincs mit ellenőrizni, kezdd a <Link href="/boraszatok">Borászatok</Link>
+            jóváhagyásával — termelő nélkül a borok azonossága nem dől el. Ha még egy
+            webshop sincs begyűjtve, indíts felderítést a
+            <Link href="/webshopok"> Webshopok</Link> oldalon.
           </p>
         </div>
       ) : (
