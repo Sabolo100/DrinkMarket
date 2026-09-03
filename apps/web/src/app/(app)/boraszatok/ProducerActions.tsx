@@ -201,3 +201,47 @@ export function ApplyButton({ csrfToken, pending }: { csrfToken: string; pending
     </div>
   );
 }
+
+/**
+ * Kereső a borászatlistához.
+ *
+ * A jelöltlista több száz soros, és pontszám szerint rendezve érkezik — ha egy
+ * konkrét pincészetet keresel (Bock, Thummerer, Lisicza), a végiggörgetés nem
+ * eszköz. A keresés a normalizált névre is illeszkedik, tehát az ékezet és a
+ * kis-nagybetű nem számít: a „csanyi" megtalálja a „Csányi Pincészet"-et.
+ */
+export function ProducerSearch({
+  initial, status, sort,
+}: { initial: string; status: string; sort: string }) {
+  const router = useRouter();
+  const [value, setValue] = useState(initial);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const u = new URLSearchParams({ status, sort });
+    if (value.trim()) u.set('search', value.trim());
+    router.push(`/boraszatok?${u}`);
+  }
+
+  return (
+    <form onSubmit={submit} className="row-tight" style={{ gap: 4 }}>
+      <input
+        className="field"
+        value={value}
+        placeholder="Keresés név szerint…"
+        aria-label="Borászat keresése"
+        onChange={(e) => setValue(e.target.value)}
+        style={{ width: 190, fontSize: 12, padding: '4px 8px' }}
+      />
+      <button className="btn btn-sm" type="submit">Keresés</button>
+      {initial && (
+        <button
+          type="button" className="btn btn-sm btn-ghost"
+          onClick={() => { setValue(''); router.push(`/boraszatok?status=${status}&sort=${sort}`); }}
+        >
+          Törlés
+        </button>
+      )}
+    </form>
+  );
+}

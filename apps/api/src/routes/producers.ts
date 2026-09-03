@@ -13,7 +13,7 @@ import { execute, query, queryOne } from '@radovin/db';
 import { AppError } from '@radovin/observability';
 import type { AppConfig } from '../config.js';
 import { requireAtLeast } from '../lib/auth.js';
-import { audit } from '../lib/context.js';
+import { audit, pageParams } from '../lib/context.js';
 import { enqueue, JOB_PRIORITY } from '../lib/queues.js';
 
 export async function producerRoutes(app: FastifyInstance, config: AppConfig): Promise<void> {
@@ -23,27 +23,53 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
     const q = z.object({
       status: z.enum(['proposed', 'active', 'retired', 'all']).optional(),
       search: z.string().optional(),
+      sort: z.enum(['score', 'name', 'listings']).optional(),
+      page: z.coerce.number().optional(),
+      pageSize: z.coerce.number().optional(),
       limit: z.coerce.number().int().min(1).max(500).optional(),
     }).parse(req.query);
+    const p_ = pageParams({ ...q, pageSize: q.pageSize ?? q.limit ?? 100 } as Record<string, unknown>);
 
     const status = q.status ?? 'proposed';
     const params: unknown[] = [];
     const where: string[] = [];
     if (status !== 'all') { params.push(status); where.push(`p.status = $${params.length}`); }
-    if (q.search) { params.push(`%${q.search}%`); where.push(`p.canonical_name ILIKE $${params.length}`); }
-    params.push(q.limit ?? 200);
+    // A kereses a NORMALIZALT nevre is illeszkedik, kulonben a "Csanyi" nem
+    // talalna meg a "Csányi Pincészet"-et - epp azt, amit a felhasznalo ir.
+    if (q.search) {
+      params.push(`%${q.search}%`);
+      params.push(`%${q.search}%`);
+      where.push(`(p.canonical_name ILIKE $${params.length - 1}
+                   OR p.name_norm LIKE rv_search_norm($${params.length}))`);
+    }
 
-    const items = await query(
-      `SELECT p.id::text, p.canonical_name, p.status, p.kind, p.fuzzy_blocked,
-              p.candidate_score, p.evidence, p.proposed_at, p.decided_at,
-              p.applied_at, p.applied_listing_count,
-              (SELECT count(*)::int FROM source_listings sl WHERE sl.producer_id = p.id) AS linked_listings
-         FROM producers p
-         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY p.candidate_score DESC NULLS LAST, p.canonical_name
-        LIMIT $${params.length}`,
-      params,
-    );
+    // A rendezes a feladathoz igazodik: a pontszam a banyaszat rangsora, a nev
+    // viszont akkor kell, amikor egy KONKRET pinceszetet keresel a listaban.
+    const orderBy = q.sort === 'name'
+      ? 'p.canonical_name ASC'
+      : q.sort === 'listings'
+        ? `(p.evidence->>'listings')::int DESC NULLS LAST, p.canonical_name`
+        : 'p.candidate_score DESC NULLS LAST, p.canonical_name';
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [items, totalRow] = await Promise.all([
+      query(
+        `SELECT p.id::text, p.canonical_name, p.status, p.kind, p.fuzzy_blocked,
+                p.candidate_score, p.evidence, p.proposed_at, p.decided_at,
+                p.applied_at, p.applied_listing_count,
+                (SELECT count(*)::int FROM source_listings sl WHERE sl.producer_id = p.id) AS linked_listings
+           FROM producers p
+           ${whereSql}
+          ORDER BY ${orderBy}
+          LIMIT ${p_.pageSize} OFFSET ${p_.offset}`,
+        params,
+      ),
+      queryOne<{ total: number }>(
+        `SELECT count(*)::int AS total FROM producers p ${whereSql}`,
+        params,
+      ),
+    ]);
 
     const counts = await query<{ status: string; count: number }>(
       `SELECT status, count(*)::int AS count FROM producers GROUP BY status`,
@@ -59,6 +85,10 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
 
     return {
       items,
+      total: totalRow?.total ?? 0,
+      page: p_.page,
+      pageSize: p_.pageSize,
+      hasMore: p_.offset + items.length < (totalRow?.total ?? 0),
       counts: Object.fromEntries(counts.map((c) => [c.status, c.count])),
       pendingApply: pending?.count ?? 0,
     };

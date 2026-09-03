@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { apiSafe, currentSession, ago } from '@/lib/api';
-import { ProducerActions, MineButton, ApplyButton } from './ProducerActions';
+import { ProducerActions, MineButton, ApplyButton, ProducerSearch } from './ProducerActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,16 +44,33 @@ export default async function ProducersPage({
   const sp = await searchParams;
   const status = typeof sp['status'] === 'string' ? sp['status'] : 'proposed';
   const search = typeof sp['search'] === 'string' ? sp['search'] : '';
+  const sort = typeof sp['sort'] === 'string' ? sp['sort'] : 'score';
+  const page = Number(typeof sp['page'] === 'string' ? sp['page'] : '1') || 1;
 
-  const qs = new URLSearchParams({ status });
+  const qs = new URLSearchParams({ status, sort, page: String(page), pageSize: '100' });
   if (search) qs.set('search', search);
 
   const [data, session] = await Promise.all([
-    apiSafe<{ items: Producer[]; counts: Record<string, number>; pendingApply: number }>(
-      `/producers?${qs}`, { items: [], counts: {}, pendingApply: 0 },
+    apiSafe<{
+      items: Producer[]; total: number; page: number; pageSize: number; hasMore: boolean;
+      counts: Record<string, number>; pendingApply: number;
+    }>(
+      `/producers?${qs}`,
+      { items: [], total: 0, page: 1, pageSize: 100, hasMore: false, counts: {}, pendingApply: 0 },
     ),
     currentSession(),
   ]);
+
+  /** Link a jelenlegi szurokkel, egy parameter felulirasaval. */
+  const linkWith = (patch: Record<string, string | number | undefined>) => {
+    const u = new URLSearchParams({ status, sort });
+    if (search) u.set('search', search);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined || v === '') u.delete(k);
+      else u.set(k, String(v));
+    }
+    return `/boraszatok?${u}`;
+  };
 
   const csrfToken = session?.csrfToken ?? '';
   const total = Object.values(data.counts).reduce((a, b) => a + b, 0);
@@ -98,7 +115,7 @@ export default async function ProducersPage({
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/boraszatok?status=${t.key}`}
+            href={`/boraszatok?status=${t.key}${sort !== 'score' ? `&sort=${sort}` : ''}`}
             className={`btn btn-sm ${status === t.key ? '' : 'btn-ghost'}`}
           >
             {t.label}
@@ -107,6 +124,37 @@ export default async function ProducersPage({
             )}
           </Link>
         ))}
+
+        <span style={{ flex: 1 }} />
+
+        {/* Kereses: a lista tobb szaz soros, vegiggorgetni nem eszkoz. */}
+        <ProducerSearch initial={search} status={status} sort={sort} />
+      </div>
+
+      {/* Rendezes. A pontszam a banyaszat rangsora - de ha egy KONKRET
+          pinceszetet keresel, a nevsor az egyetlen hasznalhato sorrend. */}
+      <div className="row-tight" style={{ gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        <span className="label">Sorrend</span>
+        {([
+          ['score', 'pontszám szerint'],
+          ['name', 'név szerint (A→Z)'],
+          ['listings', 'termékszám szerint'],
+        ] as const).map(([key, label]) => (
+          <Link
+            key={key}
+            href={linkWith({ sort: key, page: undefined })}
+            className={`btn btn-sm ${sort === key ? '' : 'btn-ghost'}`}
+          >
+            {label}
+          </Link>
+        ))}
+
+        <span className="freshness" style={{ marginLeft: 'auto' }}>
+          {data.total > 0
+            ? `${(data.page - 1) * data.pageSize + 1}–${(data.page - 1) * data.pageSize + data.items.length} / ${data.total}`
+            : '0 találat'}
+          {search ? ` · „${search}" keresésre` : ''}
+        </span>
       </div>
 
       <div className="table-wrap">
@@ -209,6 +257,22 @@ export default async function ProducersPage({
           </tbody>
         </table>
       </div>
+
+      {/* Lapozas. Enelkul a lista 100 sornal elvagodott, es a tobbi jelolt
+          egyszeruen nem letezett a felhasznalo szamara - hiaba volt bent. */}
+      {(data.page > 1 || data.hasMore) && (
+        <div className="pagination">
+          {data.page > 1
+            ? <Link className="btn btn-sm" href={linkWith({ page: data.page - 1 })}>← Előző</Link>
+            : <span />}
+          <span className="freshness">
+            {data.page}. oldal · {data.total} borászat
+          </span>
+          {data.hasMore
+            ? <Link className="btn btn-sm" href={linkWith({ page: data.page + 1 })}>Következő →</Link>
+            : <span />}
+        </div>
+      )}
 
       {status === 'proposed' && data.items.length > 0 && (
         <p className="muted" style={{ fontSize: 12, marginTop: 12, maxWidth: '70ch' }}>
