@@ -16,7 +16,9 @@ import {
   assertRowVersion, audit, pageParams, paginated, recallIdempotent, rememberIdempotent,
 } from '../lib/context.js';
 import { enqueue, JOB_PRIORITY } from '../lib/queues.js';
-import { applyApprove, applyReject, closeCase, loadOpenCase } from './review-actions.js';
+import {
+  applyApprove, applyReject, closeCase, loadOpenCase, requestPublicationRebuild,
+} from './review-actions.js';
 
 const decisionBody = z.object({
   note: z.string().max(2000).optional(),
@@ -24,6 +26,12 @@ const decisionBody = z.object({
 });
 
 export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Promise<void> {
+  /** A publikacio-ujraepites sorbaallitasa ennek a route-nak a configjaval. */
+  const enqueueRebuild = (opts: {
+    queue: 'aggregate-dashboard'; name: string; payload: Record<string, unknown>;
+    idempotencyKey: string; delayMs?: number; correlationId?: string;
+  }) => enqueue({ redisUrl: config.REDIS_URL, ...opts });
+
   // ── Lista (spec 24.1) ────────────────────────────────────────────────────
   app.get('/review-cases', async (req) => {
     const q = z.object({
@@ -250,6 +258,10 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
       priority: JOB_PRIORITY['known-listing-refresh'], correlationId: req.correlationId,
     }).catch(() => undefined);
 
+    // Az ar-osszehasonlitas a publikacios tablabol olvas; az ujraepites
+    // nelkul a dontes csak a scheduler kovetkezo koreben (orankent) latszana.
+    await requestPublicationRebuild(enqueueRebuild, 'review_approved', req.correlationId);
+
     await audit({
       actorUserId: actor.id, action: 'review.approved', entityType: 'review_case', entityId: id,
       summary: body.note ?? 'Par jovahagyva.',
@@ -318,6 +330,9 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
       }
       await closeCase(client, id, actor.id, 'rejected', body.note ?? null);
     });
+
+    // Az elutasitas ajanlatot VESZ LE a piacrol - ez is ujraepitest kivan.
+    await requestPublicationRebuild(enqueueRebuild, 'review_rejected', req.correlationId);
 
     await audit({
       actorUserId: actor.id, action: 'review.rejected', entityType: 'review_case', entityId: id,

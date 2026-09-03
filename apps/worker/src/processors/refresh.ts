@@ -13,6 +13,7 @@ import { execute, query, queryOne } from '@radovin/db';
 import { logger, metrics, newCorrelationId, withContext } from '@radovin/observability';
 import type { WorkerConfig } from '../config.js';
 import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
+import { crawlTrigger } from '../lib/crawl-trigger.js';
 import { cleanupArtifacts } from '../lib/artifacts.js';
 import { raiseAlert, rebuildAndPublish } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
@@ -65,7 +66,7 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
     const run = await queryOne<{ id: string }>(
       `INSERT INTO crawl_runs (shop_id, run_type, trigger, status, adapter_key, adapter_version, correlation_id)
        VALUES ($1,'price_refresh',$2,'running',$3,$4,$5) RETURNING id`,
-      [shopId, job.data.trigger ?? 'scheduler', shop.adapterKey, shop.adapterVersion, correlationId],
+      [shopId, crawlTrigger(job.data.trigger, 'scheduler'), shop.adapterKey, shop.adapterVersion, correlationId],
     );
     const runId = run!.id;
     const started = Date.now();
@@ -229,7 +230,7 @@ export async function processRefreshListing(job: Job<RefreshListingPayload>, con
     const run = await queryOne<{ id: string }>(
       `INSERT INTO crawl_runs (shop_id, run_type, trigger, status, adapter_key, adapter_version, correlation_id)
        VALUES ($1,'price_refresh',$2,'running',$3,$4,$5) RETURNING id`,
-      [listing.shop_id, job.data.trigger ?? 'review', shop.adapterKey, shop.adapterVersion, correlationId],
+      [listing.shop_id, crawlTrigger(job.data.trigger, 'review'), shop.adapterKey, shop.adapterVersion, correlationId],
     );
     const runId = run!.id;
 

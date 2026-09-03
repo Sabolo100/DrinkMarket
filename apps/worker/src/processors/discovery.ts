@@ -13,6 +13,7 @@ import { execute, query, queryOne } from '@radovin/db';
 import { logger, metrics, newCorrelationId, withContext } from '@radovin/observability';
 import type { WorkerConfig } from '../config.js';
 import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
+import { crawlTrigger } from '../lib/crawl-trigger.js';
 import { rotateTargets } from '../lib/discovery-cursor.js';
 
 /** Milyen surun adjon eletjelet a futo felderites. */
@@ -65,7 +66,7 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
        VALUES ($1,'discovery',$2,$3,'running',$4,$5,$6::jsonb,$7,$8)
        RETURNING id`,
       [
-        shopId, job.data.trigger ?? 'scheduler', job.data.actorUserId ?? null,
+        shopId, crawlTrigger(job.data.trigger, 'scheduler'), job.data.actorUserId ?? null,
         shop.adapterKey, shop.adapterVersion,
         JSON.stringify({ policy: shop.crawlPolicy, adapterConfig: shop.adapterConfig }),
         catalogBefore?.count ?? 0, correlationId,
@@ -499,7 +500,7 @@ export async function processHealthCheck(job: Job<DiscoveryPayload>, config: Wor
     const run = await queryOne<{ id: string }>(
       `INSERT INTO crawl_runs (shop_id, run_type, trigger, status, adapter_key, adapter_version, correlation_id)
        VALUES ($1,'health_check',$2,'running',$3,$4,$5) RETURNING id`,
-      [shopId, job.data.trigger ?? 'scheduler', shop.adapterKey, shop.adapterVersion, correlationId],
+      [shopId, crawlTrigger(job.data.trigger, 'scheduler'), shop.adapterKey, shop.adapterVersion, correlationId],
     );
     const runId = run!.id;
     const started = Date.now();
@@ -581,7 +582,7 @@ export async function processFetchUrl(job: Job<FetchUrlPayload>, config: WorkerC
     const run = await queryOne<{ id: string }>(
       `INSERT INTO crawl_runs (shop_id, run_type, trigger, status, adapter_key, adapter_version, correlation_id)
        VALUES ($1,'single_url',$2,'running',$3,$4,$5) RETURNING id`,
-      [shopId, job.data.trigger ?? 'review', shop.adapterKey, shop.adapterVersion, correlationId],
+      [shopId, crawlTrigger(job.data.trigger, 'review'), shop.adapterKey, shop.adapterVersion, correlationId],
     );
     const runId = run!.id;
 

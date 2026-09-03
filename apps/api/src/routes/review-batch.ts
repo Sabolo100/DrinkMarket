@@ -19,7 +19,9 @@ import type { AppConfig } from '../config.js';
 import { requireAtLeast } from '../lib/auth.js';
 import { audit, pageParams, paginated } from '../lib/context.js';
 import { enqueue, JOB_PRIORITY } from '../lib/queues.js';
-import { applyApprove, applyReject, loadOpenCase } from './review-actions.js';
+import {
+  applyApprove, applyReject, loadOpenCase, requestPublicationRebuild,
+} from './review-actions.js';
 
 export async function reviewBatchRoutes(app: FastifyInstance, config: AppConfig): Promise<void> {
   // ── Valtozatonkent csoportositott sor ────────────────────────────────────
@@ -247,6 +249,15 @@ export async function reviewBatchRoutes(app: FastifyInstance, config: AppConfig)
         idempotencyKey: `refresh-listing:${listingId}:${Date.now()}`,
         priority: JOB_PRIORITY['known-listing-refresh'], correlationId: req.correlationId,
       }).catch(() => undefined);
+    }
+
+    // Egy ujraepites az EGESZ kotegre - a kozos idempotencia-kulcs miatt ot
+    // dontesbol sem lesz ot publikalas.
+    if (results.some((r) => r.ok)) {
+      await requestPublicationRebuild(
+        (o) => enqueue({ redisUrl: config.REDIS_URL, ...o }),
+        'review_bulk', req.correlationId,
+      );
     }
 
     const okCount = results.filter((r) => r.ok).length;

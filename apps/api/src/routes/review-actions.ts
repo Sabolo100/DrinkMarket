@@ -175,3 +175,41 @@ export async function applyReject(client: PoolClient, opts: RejectOpts): Promise
   }
   await closeCase(client, opts.caseId, opts.actorId, 'rejected', opts.note);
 }
+
+/**
+ * A piaci publikacio ujraepitesenek kerese egy EMBERI dontes utan.
+ *
+ * Enelkul a jovahagyas nem latszik: az ar-osszehasonlitas a
+ * `market_publications` tablabol olvas, azt pedig csak a scheduler epiti
+ * ujra - orankent egyszer (`>55 perc`). Aki jovahagy egy parositast es
+ * rogton megnezi a fooldalt, semmit nem lat, es joggal hiszi, hogy nem
+ * mukodik.
+ *
+ * A rovid kesleltetes es a kozos kulcs szandekos: aki egymas utan hagy jova
+ * tizet - vagy a kotegelt felulettel egyszerre otot -, annak EGY ujraepites
+ * fusson, ne tiz.
+ */
+export async function requestPublicationRebuild(
+  enqueueFn: (opts: {
+    queue: 'aggregate-dashboard'; name: string; payload: Record<string, unknown>;
+    idempotencyKey: string; delayMs?: number; correlationId?: string;
+  }) => Promise<unknown>,
+  trigger: string,
+  correlationId?: string,
+): Promise<void> {
+  // Sajat kulcs, a schedulereetol FUGGETLENUL: ha az orankenti ujraepites
+  // eppen fut, a kozos kulcs miatt a mi keresunk deduplikalodna ra - es a
+  // most hozott dontes kimaradna a mar futo publikaciobol.
+  //
+  // A 30 masodperces idoveder osszevonja a gyors egymasutani donteseket
+  // (egy kotegelt mentes, vagy tiz kattintas), de nem tapad egy mar futo
+  // jobra.
+  const bucket = Math.floor(Date.now() / 30_000);
+  await enqueueFn({
+    queue: 'aggregate-dashboard', name: 'rebuild',
+    payload: { trigger },
+    idempotencyKey: `aggregate:rebuild:human:${bucket}`,
+    delayMs: 15_000,
+    correlationId,
+  }).catch(() => undefined);
+}
