@@ -13,7 +13,7 @@
  * erossege kulonbozo, es a gyengebb nem nyerhet.
  */
 import type { PoolClient } from 'pg';
-import { identityHash, type WineParseResult } from '@radovin/domain';
+import { identityHash, parseVolume, type WineParseResult } from '@radovin/domain';
 import type { IdentityFields } from '@radovin/contracts';
 
 /** A listing azon mezoi, amikbol az identitas-hash ujraszamolhato. */
@@ -126,6 +126,8 @@ export interface WineSlotPatch {
   vintageValue: number | null;
   vintageStatus: string;
   colour: string | null;
+  volumeMl: number | null;
+  packCount: number;
 }
 
 /**
@@ -142,10 +144,30 @@ export function wineSlotPatch(
     producerId?: string | null; producerName?: string | null;
     vintageValue?: number | null; vintageStatus?: string | null;
     colour?: string | null;
+    rawName?: string | null;
+    volumeMl?: number | null; packCount?: number | null;
   },
   lookups: WineLookups,
 ): WineSlotPatch {
   const vintageValue = prior.vintageValue ?? parsed.vintageValue;
+
+  // A kiszereles a leghianyosabb azonossagmezo: a valos korpusz felen sincs
+  // meg. A nevben viszont majdnem mindig ott van ("0,75 l", "75cl"), es a
+  // rendszernek mar van ra elemzoje - csak eddig kizarolag a begyujtes
+  // futtatta, az ujrakinyeres nem.
+  //
+  // Ugyanaz a forraserossegi szabaly: a spec-tablabol kinyert ertek
+  // erosebb, ezert csak a HIANYT toltjuk ki.
+  const fromName = prior.volumeMl == null || (prior.packCount ?? 1) <= 1
+    ? parseVolume(prior.rawName ?? null)
+    : null;
+  const volumeMl = prior.volumeMl ?? fromName?.unitVolumeMl ?? null;
+  // A darabszamnal a `null` es az `1` nem kulonboztetheto meg (az oszlop
+  // alapertelmezese 1), ezert CSAK a bizonyitott tobbes csomagot irjuk be.
+  // Ez a biztonsagos irany: egy 6-os karton igy nem parosodhat egy palackkal.
+  const packCount = (fromName && fromName.packCount > 1)
+    ? fromName.packCount
+    : (prior.packCount ?? 1);
   return {
     // A boraszatot nem vesszuk el: ha a nev most nem adja ki, a korabban
     // feloldott ertek marad ervenyben.
@@ -174,6 +196,8 @@ export function wineSlotPatch(
       ? prior.vintageStatus
       : (vintageValue !== null ? 'vintage' : (prior.vintageStatus ?? 'unknown')),
     colour: prior.colour ?? deriveColour(parsed, lookups),
+    volumeMl,
+    packCount,
   };
 }
 
@@ -195,11 +219,13 @@ export async function applyWineIdentity(
   const patch = wineSlotPatch(parsed, {
     producerId: row.producer_id, producerName: row.producer_name,
     vintageValue: row.vintage_value, vintageStatus: row.vintage_status,
-    colour: row.colour,
+    colour: row.colour, rawName: row.raw_name,
+    volumeMl: row.volume_ml, packCount: row.pack_count,
   }, lookups);
 
   const { producerId, wineStyleId: styleId, vineyardId, wineRegionId: regionId,
-    grapeIds, expression, vintageValue: vintage, vintageStatus, colour } = patch;
+    grapeIds, expression, vintageValue: vintage, vintageStatus, colour,
+    volumeMl, packCount } = patch;
 
   if (parsed.producer && parsed.producer.id !== row.producer_id) fields.push('producer_id');
   if (styleId !== row.wine_style_id) fields.push('wine_style_id');
@@ -211,6 +237,8 @@ export async function applyWineIdentity(
   if (vintage !== row.vintage_value) fields.push('vintage_value');
   if (vintageStatus !== row.vintage_status) fields.push('vintage_status');
   if (colour !== row.colour) fields.push('colour');
+  if (volumeMl !== row.volume_ml) fields.push('volume_ml');
+  if (packCount !== (row.pack_count ?? 1)) fields.push('pack_count');
 
   const categoryId = row.category_id
     ?? (provenWine(parsed) ? (lookups.wineCategoryId ?? null) : null);
@@ -250,8 +278,8 @@ export async function applyWineIdentity(
     vintageValue: vintage,
     vintageStatus: vintageStatus as IdentityFields['vintageStatus'],
     ageStatementYears: row.age_statement_years,
-    volumeMl: row.volume_ml,
-    packCount: row.pack_count ?? 1,
+    volumeMl,
+    packCount,
     packagingType: row.packaging_type as IdentityFields['packagingType'],
     containerType: null,
     edition: row.edition, caskFinish: row.cask_finish, dosageStyle: row.dosage_style,
@@ -284,6 +312,8 @@ export async function applyWineIdentity(
        expression      = $8,
        vintage_value   = $9,
        vintage_status  = $13,
+       volume_ml       = $14,
+       pack_count      = $15,
        colour          = coalesce($10, colour),
        identity_hash   = $11,
        category_id     = coalesce(category_id, $12::uuid),
@@ -298,6 +328,7 @@ export async function applyWineIdentity(
       row.id, producerId, styleId, vineyardId, regionId,
       grapeSignature, identity.grapeVarieties,
       expression, vintage, colour, hash, categoryId, vintageStatus,
+      volumeMl, packCount,
     ],
   );
 

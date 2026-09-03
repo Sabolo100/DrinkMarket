@@ -444,3 +444,55 @@ describe('az evjarat allapota', () => {
     expect(f.updates()[0]?.params[12]).toBe('unknown');
   });
 });
+
+describe('a kiszereles kiolvasasa a nevbol', () => {
+  it('kitolti a hianyzo kiszerelest', () => {
+    // A valos korpusz felen nem volt kiszereles, holott a nevben ott all.
+    // Ez a leggyakoribb ok, amiert egy bor nem tud automatikusan parosodni.
+    const f = fakeClient();
+    return applyWineIdentity(
+      f.client,
+      row({ raw_name: 'Sauska Kékfrankos 2019 0,75 l', volume_ml: null }),
+      parse({
+        producer: match('producer', 'p', 'Sauska'),
+        grapes: [match('grape', GRAPE_KEK, 'Kékfrankos')],
+      }), lookups,
+    ).then((result) => {
+      expect(result.fields).toContain('volume_ml');
+      expect(f.updates()[0]?.params[13]).toBe(750);
+    });
+  });
+
+  it('a spec-tablabol jott kiszerelest NEM irja felul', async () => {
+    const f = fakeClient();
+    const result = await applyWineIdentity(
+      f.client,
+      row({ raw_name: 'Sauska Kékfrankos 2019 1,5 l', volume_ml: 750 }),
+      parse({ producer: match('producer', 'p', 'Sauska') }), lookups);
+    expect(result.fields).not.toContain('volume_ml');
+    expect(f.updates()[0]?.params[13]).toBe(750);
+  });
+
+  it('a bizonyitott tobbes csomagot beirja', async () => {
+    // Egy 6-os karton NEM parosodhat egy palackkal - ez a hamis egyezes
+    // veszelyes iranya, ezert ezt kifejezetten ki kell mondani.
+    const f = fakeClient();
+    const result = await applyWineIdentity(
+      f.client,
+      row({ raw_name: 'Sauska Kékfrankos 2019 6 x 0,75 l', volume_ml: null }),
+      parse({ producer: match('producer', 'p', 'Sauska') }), lookups);
+    expect(result.fields).toContain('pack_count');
+    expect(f.updates()[0]?.params[14]).toBe(6);
+    expect(f.updates()[0]?.params[13]).toBe(750);
+  });
+
+  it('kiszereles nelkuli nevbol nem talal ki semmit', async () => {
+    const f = fakeClient();
+    const result = await applyWineIdentity(
+      f.client,
+      row({ raw_name: 'Sauska Kékfrankos 2019', volume_ml: null }),
+      parse({ producer: match('producer', 'p', 'Sauska') }), lookups);
+    expect(result.fields).not.toContain('volume_ml');
+    expect(f.updates()[0]?.params[13]).toBeNull();
+  });
+});

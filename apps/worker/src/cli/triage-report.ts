@@ -158,6 +158,40 @@ async function main(): Promise<void> {
   console.log(`  ${'atlagosan hany boltban'.padEnd(52)} ${String(g?.shops_avg ?? 0).padStart(7)}`);
   console.log(`\n  Az ar-or kuszobe: ${priceRatioMax}x`);
 
+  // ── 2b. Melyik mezo mibe kerul ─────────────────────────────────────────
+  //
+  // A leghasznosabb diagnosztika nem az, hogy melyik mezo hianyzik a
+  // legtobbszor, hanem hogy melyik hianyzik EGYEDULIKENT - vagyis hany
+  // listing van meg egy hajszalra a teljessegtol. Azokat egyetlen mezo
+  // javitasa (vagy egyetlen szabalydontes) hozna at.
+  const CORE: Array<[string, string]> = [
+    ['boraszat', 'sl.producer_id IS NOT NULL'],
+    ['fajta', 'sl.grape_signature IS NOT NULL'],
+    ['szin', 'sl.colour IS NOT NULL'],
+    ['evjarat', "sl.vintage_value IS NOT NULL AND sl.vintage_status = 'vintage'"],
+    ['kiszereles', 'sl.volume_ml IS NOT NULL'],
+  ];
+
+  console.log('\n══ MELYIK MEZO MIBE KERUL ═══════════════════════════════════════════════\n');
+  console.log('  Hany listing van meg EGYETLEN mezore a teljessegtol:\n');
+  for (const [label, cond] of CORE) {
+    const others = CORE.filter(([l]) => l !== label).map(([, c]) => c).join(' AND ');
+    const r = await query<{ n: number }>(
+      `SELECT count(*)::int AS n
+         FROM source_listings sl
+         JOIN product_categories pc ON pc.id = sl.category_id
+        WHERE sl.listing_status = 'active' AND pc.key = 'wine'
+          AND sl.pack_count IS NOT NULL AND sl.packaging_type IS NOT NULL
+          AND NOT (${cond}) AND ${others}`,
+    );
+    row(`csak a(z) ${label} hianyzik`, r[0]?.n ?? 0, total);
+  }
+
+  console.log('\n  Ha egy mezo sokba kerul, ket ut van: javitani a kinyerest, vagy');
+  console.log('  kivenni az azonossagmagbol (0018 migracio). A masodik csak akkor');
+  console.log('  biztonsagos, ha a mezo `contradiction_only` marad - vagyis ismert');
+  console.log('  elteres eseten tovabbra is kizar.');
+
   // ── 3. Mi marad emberre ────────────────────────────────────────────────
   const queue = await query<{ open_cases: number; variants: number }>(
     `SELECT count(*)::int AS open_cases,

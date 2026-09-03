@@ -179,6 +179,9 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
           vintageValue: listing.identity.vintageValue,
           vintageStatus: listing.identity.vintageStatus,
           colour: listing.identity.colour,
+          rawName: listing.rawName,
+          volumeMl: listing.identity.volumeMl,
+          packCount: listing.identity.packCount,
         }, colours);
 
         const sig = await client.query<{ signature: string | null }>(
@@ -198,6 +201,8 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
         listing.identity.vintageValue = patch.vintageValue;
         listing.identity.vintageStatus = patch.vintageStatus as typeof listing.identity.vintageStatus;
         listing.identity.colour = patch.colour;
+        listing.identity.volumeMl = patch.volumeMl;
+        listing.identity.packCount = patch.packCount;
         wineGrapeIds.push(...patch.grapeIds);
         wineParsed = true;
         if (!effectiveCategoryId && parsed.producer
