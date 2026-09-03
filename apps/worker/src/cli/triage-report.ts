@@ -198,7 +198,13 @@ async function main(): Promise<void> {
   // latni kell, hogy jeloletlen magnumokat fog-e ki, vagy valodi arelonyoket
   // dob emberhez feleslegesen.
   if (heldPairs > 0) {
-    const examples = await query<{ nev: string; olcso: number; draga: number; arany: string }>(
+    // MINDKET oldal neve kell. Csak a dragat mutatva nem lehet eldonteni, mi
+    // tortent: ugyanannak a bornak az arkulonbsege, vagy KET KULONBOZO tetel
+    // csuszott egy csoportba. A masodik gyakoribb, mint hinnenk - a
+    // fantazianev (pl. "Cuvee 7" vs "Cuvee 105") nincs az azonossagmagban.
+    const examples = await query<{
+      draga_nev: string; olcso_nev: string; olcso: number; draga: number; arany: string;
+    }>(
       `WITH base AS (
          SELECT sl.raw_name, ${GROUP_LIST},
                 o.selected_comparable_price_huf AS price
@@ -208,13 +214,19 @@ async function main(): Promise<void> {
           WHERE sl.listing_status = 'active' AND pc.key = 'wine'
             AND ${COMPLETE}
        ), grp AS (
-         SELECT ${baseCols}, min(price) AS cheapest,
-                count(DISTINCT ${GROUP_COLS[0]!.replace('sl.', '')}) AS dummy
+         SELECT ${baseCols}, min(price) AS cheapest
            FROM base GROUP BY ${GROUP_NUMS}
+       ), cheap AS (
+         SELECT DISTINCT ON (${baseCols}) ${baseCols}, raw_name, price
+           FROM base WHERE price IS NOT NULL
+          ORDER BY ${baseCols}, price
        )
-       SELECT b.raw_name AS nev, grp.cheapest AS olcso, b.price AS draga,
+       SELECT b.raw_name AS draga_nev, c.raw_name AS olcso_nev,
+              grp.cheapest AS olcso, b.price AS draga,
               round(b.price::numeric / grp.cheapest::numeric, 2)::text AS arany
-         FROM base b JOIN grp ON ${joinOn}
+         FROM base b
+         JOIN grp ON ${joinOn}
+         JOIN cheap c ON ${joinOn.replace(/grp\./g, 'c.')}
         WHERE grp.cheapest > 0 AND b.price IS NOT NULL
           AND (b.price::numeric / grp.cheapest::numeric) > $1
         ORDER BY b.price::numeric / grp.cheapest::numeric DESC
@@ -222,12 +234,20 @@ async function main(): Promise<void> {
       [priceRatioMax],
     );
     if (examples.length) {
-      console.log('\n  Amit az ar-or visszatart (a legnagyobb aranyok):\n');
+      console.log('\n  Amit az ar-or visszatart - MINDKET oldal:\n');
       for (const e of examples) {
-        console.log(`    ${e.arany.padStart(6)}x  ${Number(e.olcso).toLocaleString('hu-HU')} -> ${Number(e.draga).toLocaleString('hu-HU')} Ft   ${e.nev.slice(0, 52)}`);
+        console.log(`    ${e.arany.padStart(6)}x`);
+        console.log(`      ${String(Number(e.olcso).toLocaleString('hu-HU')).padStart(8)} Ft  ${e.olcso_nev.slice(0, 58)}`);
+        console.log(`      ${String(Number(e.draga).toLocaleString('hu-HU')).padStart(8)} Ft  ${e.draga_nev.slice(0, 58)}`);
       }
-      console.log('\n    Ha ezek jeloletlen magnumok vagy diszdobozok, a kuszob jo.');
-      console.log('    Ha valodi arelonyok, erdemes feljebb vinni (matching.thresholds).');
+      console.log('\n    Ha a KET NEV ugyanaz a bor, akkor valodi arkulonbseg -');
+      console.log('    ilyenkor erdemes a kuszobot feljebb vinni (matching.thresholds).');
+      console.log('    Ha KULONBOZO borok, akkor az ar-or eppen a dolgat vegzi: a');
+      console.log('    fantazianev nincs az azonossagmagban, ezert ket kulonbozo cuvee');
+      console.log('    egy csoportba kerulhet. Ilyenkor hagyd, ahogy van.');
+      console.log('\n    (A motor szigorubb, mint ez a csoportositas: a fantazianevre is');
+      console.log('    nez, tehat ezek egy reszet mar eleve elutasitja - nem is jut el');
+      console.log('    az ar-orig. Ez a lista felso becsles.)');
     }
   }
 
