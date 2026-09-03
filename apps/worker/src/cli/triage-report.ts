@@ -2,9 +2,10 @@
  * Szarazpróba: mennyit zarna le a gep, es mennyi maradna emberre?
  *
  * A hármas szuro hozama NEM a szabalyon mulik, hanem a kinyeres
- * teljessegen. Ha keves listingen van meg mind a negy bor-slot, akkor az
+ * teljessegen. Ha keves listingen van meg minden azonossagmezo, akkor az
  * automatika keveset zar le - es ilyenkor NEM a kuszobot kell lazitani
- * (az hamis parokat termelne), hanem a kinyeres hianyat javitani.
+ * (az hamis parokat termelne), hanem a kinyeres hianyat javitani, vagy
+ * tudatosan kivenni egy mezot az azonossagmagbol.
  *
  * Ezert fut ez a parancs a kapcsolo bekapcsolasa ELOTT. Semmit nem ir.
  *
@@ -16,20 +17,46 @@ import { closeDb, initDb, query } from '@radovin/db';
 import { configureLogger } from '@radovin/observability';
 
 /**
- * A bor azonossagmagja - ugyanaz, amit a 0018 migracio a kategoriara ir.
- * Itt SQL-ben ismeteljuk meg, mert a teljes motor lefuttatasa huszezer
- * listingen percekig tartana, es a kerdes megvalaszolasahoz nem kell.
+ * Azonossagmag-mezo -> (bizonyitott-e, mi szerint csoportosit).
+ *
+ * A magot NEM itt allitjuk ossze, hanem az ADATBAZISBOL olvassuk
+ * (`product_categories.identity_profile -> identity_core`). Ha itt
+ * masodpeldany lenne, egy migracio csendben szetvinne a riportot es a
+ * motort - a riport pedig eppen az a szam, ami alapjan dontesz. Egy ilyen
+ * elteres a legrosszabb fajta hiba: sokaig lathatatlan marad.
  */
-const WINE_CORE_COMPLETE = `
-  sl.producer_id IS NOT NULL
-  AND sl.grape_signature IS NOT NULL
-  AND sl.colour IS NOT NULL
-  AND sl.vintage_value IS NOT NULL
-  AND sl.vintage_status = 'vintage'
-  AND sl.volume_ml IS NOT NULL
-  AND sl.pack_count IS NOT NULL
-  AND sl.packaging_type IS NOT NULL
-`;
+interface FieldDef {
+  /** Bizonyitottnak szamit-e a mezo ezen a listingen. */
+  proven: string;
+  /** Mi szerint csoportosuljon a "ugyanaz a termek" kulcs. */
+  group: string;
+  hu: string;
+}
+
+const FIELDS: Record<string, FieldDef> = {
+  producer: { proven: 'sl.producer_id IS NOT NULL', group: 'sl.producer_id', hu: 'boraszat' },
+  brand: { proven: 'sl.brand_id IS NOT NULL', group: 'sl.brand_id', hu: 'marka' },
+  grape_varieties: { proven: 'sl.grape_signature IS NOT NULL', group: 'sl.grape_signature', hu: 'fajta' },
+  colour: { proven: 'sl.colour IS NOT NULL', group: 'sl.colour', hu: 'szin' },
+  wine_style: { proven: 'sl.wine_style_id IS NOT NULL', group: 'sl.wine_style_id', hu: 'bortipus' },
+  vineyard: { proven: 'sl.vineyard_id IS NOT NULL', group: 'sl.vineyard_id', hu: 'dulo' },
+  vintage: {
+    proven: "sl.vintage_value IS NOT NULL AND sl.vintage_status = 'vintage'",
+    group: 'sl.vintage_value', hu: 'evjarat',
+  },
+  volume_ml: { proven: 'sl.volume_ml IS NOT NULL', group: 'sl.volume_ml', hu: 'kiszereles' },
+  pack_count: { proven: 'sl.pack_count IS NOT NULL', group: 'sl.pack_count', hu: 'darabszam' },
+  packaging_type: { proven: 'sl.packaging_type IS NOT NULL', group: 'sl.packaging_type', hu: 'csomagolas' },
+  expression: { proven: 'sl.expression IS NOT NULL', group: 'sl.expression', hu: 'fantazianev' },
+  age_statement_years: {
+    proven: 'sl.age_statement_years IS NOT NULL', group: 'sl.age_statement_years', hu: 'kor',
+  },
+  puttony: { proven: 'sl.puttony IS NOT NULL', group: 'sl.puttony', hu: 'puttony' },
+  dosage_style: { proven: 'sl.dosage_style IS NOT NULL', group: 'sl.dosage_style', hu: 'dosage' },
+  edition: { proven: 'sl.edition IS NOT NULL', group: 'sl.edition', hu: 'kiadas' },
+  abv_percent: { proven: 'sl.abv_percent IS NOT NULL', group: 'sl.abv_percent', hu: 'alkoholfok' },
+  gtin: { proven: 'sl.gtin_normalized IS NOT NULL', group: 'sl.gtin_normalized', hu: 'EAN' },
+};
 
 function pct(part: number, total: number): string {
   if (!total) return '  -  ';
@@ -49,61 +76,71 @@ async function main(): Promise<void> {
 
   const priceRatioMax = Number(
     (await query<{ v: string }>(
-      `SELECT coalesce(value->>'priceRatioMax','3.0') AS v FROM settings WHERE key='matching.thresholds'`,
-    ))[0]?.v ?? 3.0,
+      `SELECT coalesce(value->>'priceRatioMax','2.0') AS v
+         FROM settings WHERE key = 'matching.thresholds' AND active`,
+    ))[0]?.v ?? 2.0,
   );
 
+  // ── Az azonossagmag az ADATBAZISBOL ────────────────────────────────────
+  const coreRow = await query<{ core: string[] | null }>(
+    `SELECT identity_profile->'identity_core' AS core
+       FROM product_categories WHERE key = 'wine'`,
+  );
+  const raw = coreRow[0]?.core ?? [];
+  const core = raw.filter((f) => FIELDS[f]);
+  const unknownFields = raw.filter((f) => !FIELDS[f]);
+
+  if (!core.length) {
+    console.log('\n  A bor kategoria azonossagmagja URES - nincs automatikus jovahagyas.\n');
+    await closeDb();
+    return;
+  }
+  if (unknownFields.length) {
+    console.log(`\n  FIGYELEM: a riport nem ismeri ezt a magmezot: ${unknownFields.join(', ')}\n`);
+  }
+
+  const COMPLETE = core.map((f) => `(${FIELDS[f]!.proven})`).join(' AND ');
+  const GROUP_COLS = core.map((f) => FIELDS[f]!.group);
+  const GROUP_LIST = GROUP_COLS.join(', ');
+  const GROUP_NUMS = core.map((_, i) => i + 1).join(',');
+
+  console.log(`\n  Azonossagmag (bor): ${core.map((f) => FIELDS[f]!.hu).join(' + ')}`);
+
   // ── 1. A kinyeres teljessege ───────────────────────────────────────────
-  const slots = await query<{
-    total: number; producer: number; grape: number; colour: number;
-    vintage: number; volume: number; complete: number;
-  }>(
+  const slotSelect = core
+    .map((f, i) => `count(*) FILTER (WHERE ${FIELDS[f]!.proven})::int AS f${i}`)
+    .join(',\n            ');
+
+  const slots = await query<Record<string, number>>(
     `SELECT count(*)::int AS total,
-            count(*) FILTER (WHERE sl.producer_id IS NOT NULL)::int AS producer,
-            count(*) FILTER (WHERE sl.grape_signature IS NOT NULL)::int AS grape,
-            count(*) FILTER (WHERE sl.colour IS NOT NULL)::int AS colour,
-            count(*) FILTER (WHERE sl.vintage_value IS NOT NULL
-                               AND sl.vintage_status = 'vintage')::int AS vintage,
-            count(*) FILTER (WHERE sl.volume_ml IS NOT NULL)::int AS volume,
-            count(*) FILTER (WHERE ${WINE_CORE_COMPLETE})::int AS complete
+            ${slotSelect},
+            count(*) FILTER (WHERE ${COMPLETE})::int AS complete
        FROM source_listings sl
        JOIN product_categories pc ON pc.id = sl.category_id
       WHERE sl.listing_status = 'active' AND pc.key = 'wine'`,
   );
-  const s = slots[0];
-  const total = s?.total ?? 0;
+  const s = slots[0] ?? {};
+  const total = s['total'] ?? 0;
 
   console.log('\n══ A BOR-LISTINGEK AZONOSSAGA ═══════════════════════════════════════════\n');
   row('bor kategoriaju aktiv listing', total);
   console.log();
-  row('van jovahagyott boraszata', s?.producer ?? 0, total);
-  row('van fajtalenyomata', s?.grape ?? 0, total);
-  row('van szine', s?.colour ?? 0, total);
-  row('van bizonyitott evjarata', s?.vintage ?? 0, total);
-  row('van kiszerelese', s?.volume ?? 0, total);
+  core.forEach((f, i) => row(`van ${FIELDS[f]!.hu}`, s[`f${i}`] ?? 0, total));
   console.log();
-  row('TELJES azonossag (minden magmezo)', s?.complete ?? 0, total);
+  row('TELJES azonossag (minden magmezo)', s['complete'] ?? 0, total);
 
   // ── 2. Mi lenne automatikusan lezarhato ────────────────────────────────
-  const groups = await query<{
-    groups: number; listings: number; shops_avg: number; pairs: number;
-  }>(
+  const groups = await query<{ groups: number; shops_avg: number; pairs: number }>(
     `WITH g AS (
-       SELECT sl.producer_id, sl.grape_signature, sl.colour, sl.vintage_value,
-              sl.volume_ml, sl.pack_count, sl.packaging_type,
-              count(*)::int AS n,
-              count(DISTINCT sl.shop_id)::int AS shops,
-              min(o.selected_comparable_price_huf) AS min_price,
-              max(o.selected_comparable_price_huf) AS max_price
+       SELECT ${GROUP_LIST},
+              count(DISTINCT sl.shop_id)::int AS shops
          FROM source_listings sl
          JOIN product_categories pc ON pc.id = sl.category_id
-         LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id
         WHERE sl.listing_status = 'active' AND pc.key = 'wine'
-          AND ${WINE_CORE_COMPLETE}
-        GROUP BY 1,2,3,4,5,6,7
+          AND ${COMPLETE}
+        GROUP BY ${GROUP_NUMS}
      )
      SELECT count(*) FILTER (WHERE shops >= 2)::int AS groups,
-            coalesce(sum(n) FILTER (WHERE shops >= 2), 0)::int AS listings,
             coalesce(avg(shops) FILTER (WHERE shops >= 2), 0)::numeric(4,2) AS shops_avg,
             coalesce(sum(shops - 1) FILTER (WHERE shops >= 2), 0)::int AS pairs
        FROM g`,
@@ -114,34 +151,33 @@ async function main(): Promise<void> {
   // oldal viszonyitasi arahoz mérodik, az pedig a mar igazolt boltok
   // legolcsobbja. Csoportszinten szamolva egyetlen kiugro ar az egesz
   // csoportot visszatartottnak mutatna - ez felrevezeto lenne.
+  const joinOn = GROUP_COLS
+    .map((c) => {
+      const col = c.replace('sl.', '');
+      return `grp.${col} IS NOT DISTINCT FROM b.${col}`;
+    })
+    .join(' AND ');
+  const baseCols = GROUP_COLS.map((c) => c.replace('sl.', '')).join(', ');
+
   const held = await query<{ held: number }>(
     `WITH base AS (
-       SELECT sl.id, sl.shop_id,
-              sl.producer_id, sl.grape_signature, sl.colour, sl.vintage_value,
-              sl.volume_ml, sl.pack_count, sl.packaging_type,
+       SELECT sl.shop_id, ${GROUP_LIST},
               o.selected_comparable_price_huf AS price
          FROM source_listings sl
          JOIN product_categories pc ON pc.id = sl.category_id
          LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id
         WHERE sl.listing_status = 'active' AND pc.key = 'wine'
-          AND ${WINE_CORE_COMPLETE}
+          AND ${COMPLETE}
      ), grp AS (
-       SELECT producer_id, grape_signature, colour, vintage_value,
-              volume_ml, pack_count, packaging_type,
+       SELECT ${baseCols},
               min(price) AS cheapest,
               count(DISTINCT shop_id)::int AS shops
          FROM base
-        GROUP BY 1,2,3,4,5,6,7
+        GROUP BY ${GROUP_NUMS}
      )
      SELECT count(*)::int AS held
        FROM base b
-       JOIN grp ON grp.producer_id = b.producer_id
-                AND grp.grape_signature = b.grape_signature
-                AND grp.colour = b.colour
-                AND grp.vintage_value = b.vintage_value
-                AND grp.volume_ml = b.volume_ml
-                AND grp.pack_count = b.pack_count
-                AND grp.packaging_type = b.packaging_type
+       JOIN grp ON ${joinOn}
       WHERE grp.shops >= 2 AND grp.cheapest > 0 AND b.price IS NOT NULL
         AND b.price <> grp.cheapest
         AND (b.price::numeric / grp.cheapest::numeric) > $1`,
@@ -162,33 +198,25 @@ async function main(): Promise<void> {
   //
   // A leghasznosabb diagnosztika nem az, hogy melyik mezo hianyzik a
   // legtobbszor, hanem hogy melyik hianyzik EGYEDULIKENT - vagyis hany
-  // listing van meg egy hajszalra a teljessegtol. Azokat egyetlen mezo
-  // javitasa (vagy egyetlen szabalydontes) hozna at.
-  const CORE: Array<[string, string]> = [
-    ['boraszat', 'sl.producer_id IS NOT NULL'],
-    ['fajta', 'sl.grape_signature IS NOT NULL'],
-    ['szin', 'sl.colour IS NOT NULL'],
-    ['evjarat', "sl.vintage_value IS NOT NULL AND sl.vintage_status = 'vintage'"],
-    ['kiszereles', 'sl.volume_ml IS NOT NULL'],
-  ];
-
+  // listing van meg egyetlen mezore a teljessegtol. Azokat egyetlen
+  // kinyeresjavitas vagy egyetlen szabalydontes hozna at.
   console.log('\n══ MELYIK MEZO MIBE KERUL ═══════════════════════════════════════════════\n');
   console.log('  Hany listing van meg EGYETLEN mezore a teljessegtol:\n');
-  for (const [label, cond] of CORE) {
-    const others = CORE.filter(([l]) => l !== label).map(([, c]) => c).join(' AND ');
+  for (const f of core) {
+    const others = core.filter((x) => x !== f).map((x) => `(${FIELDS[x]!.proven})`).join(' AND ');
     const r = await query<{ n: number }>(
       `SELECT count(*)::int AS n
          FROM source_listings sl
          JOIN product_categories pc ON pc.id = sl.category_id
         WHERE sl.listing_status = 'active' AND pc.key = 'wine'
-          AND sl.pack_count IS NOT NULL AND sl.packaging_type IS NOT NULL
-          AND NOT (${cond}) AND ${others}`,
+          AND NOT (${FIELDS[f]!.proven})
+          ${others ? `AND ${others}` : ''}`,
     );
-    row(`csak a(z) ${label} hianyzik`, r[0]?.n ?? 0, total);
+    row(`csak a(z) ${FIELDS[f]!.hu} hianyzik`, r[0]?.n ?? 0, total);
   }
 
   console.log('\n  Ha egy mezo sokba kerul, ket ut van: javitani a kinyerest, vagy');
-  console.log('  kivenni az azonossagmagbol (0018 migracio). A masodik csak akkor');
+  console.log('  kivenni az azonossagmagbol (migracio). A masodik csak akkor');
   console.log('  biztonsagos, ha a mezo `contradiction_only` marad - vagyis ismert');
   console.log('  elteres eseten tovabbra is kizar.');
 
@@ -216,14 +244,14 @@ async function main(): Promise<void> {
   console.log(`\n  Az automatikus jovahagyas jelenleg: ${flag[0]?.enabled ? 'BEKAPCSOLVA' : 'kikapcsolva'}`);
 
   if (!flag[0]?.enabled) {
-    console.log('\n  Bekapcsolashoz a webalkalmazas Beallitasok lapjan, vagy:');
+    console.log('\n  Bekapcsolashoz:');
     console.log("    UPDATE feature_flags SET enabled = true WHERE key = 'auto_match_identity_complete';");
   }
 
-  if ((s?.complete ?? 0) < total * 0.3 && total > 0) {
+  if ((s['complete'] ?? 0) < total * 0.3 && total > 0) {
     console.log('\n  FIGYELEM: a listingek kevesebb mint harmadan teljes az azonossag.');
     console.log('  Ilyenkor NEM a kuszobot kell lazitani - az hamis parokat termelne -,');
-    console.log('  hanem a kinyerest javitani. Nezd meg fent, melyik slot hianyzik a legtobbszor.');
+    console.log('  hanem a kinyerest javitani. Nezd meg fent, melyik mezo kerul a legtobbe.');
   }
 
   console.log();

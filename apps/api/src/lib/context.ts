@@ -142,7 +142,7 @@ export async function currentMatchPolicy(): Promise<MatchPolicy> {
         review: { minScore: 0.7 },
         ambiguousMargin: 0.03,
         volumeToleranceMl: 5,
-        priceRatioMax: 3.0,
+        priceRatioMax: 2.0,
       }),
       getSetting<Record<string, number>>('matching.field_weights', {
         producer: 0.18, expression: 0.28, vintage: 0.16, volume: 0.16,
@@ -168,7 +168,7 @@ export async function currentMatchPolicy(): Promise<MatchPolicy> {
     // kikapcsolnanak minden rajuk epulo szabalyt.
     thresholds: {
       ...(thresholds as MatchPolicy['thresholds']),
-      priceRatioMax: (thresholds as Partial<MatchPolicy['thresholds']>).priceRatioMax ?? 3.0,
+      priceRatioMax: (thresholds as Partial<MatchPolicy['thresholds']>).priceRatioMax ?? 2.0,
     },
     fieldWeights: weights,
   };

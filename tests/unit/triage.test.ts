@@ -19,20 +19,24 @@ import {
   emptyIdentityFields, type Candidate, type IdentityFields, type MatchPolicy,
 } from '@radovin/contracts';
 
-/** A 0018 migracio szerinti eles bor-profil. */
+/** A 0018 + 0019 migracio szerinti eles bor-profil. */
 const WINE_PROFILE = {
-  required: ['producer', 'vintage', 'volume_ml', 'pack_count', 'packaging_type'],
+  // A 0019 utan: a kiszereles NEM kotelezo, csak ellentmondasjelzo.
+  required: ['producer', 'vintage', 'pack_count', 'packaging_type'],
   contradiction_only: [
     'grape_varieties', 'wine_style', 'vineyard', 'expression',
-    'colour', 'region', 'sweetness', 'abv_percent', 'edition', 'gtin',
+    'colour', 'region', 'sweetness', 'abv_percent', 'edition', 'gtin', 'volume_ml',
   ],
   supporting: ['country_code', 'organic'],
   not_applicable: ['age_statement_years', 'dosage_style', 'cask_finish', 'puttony'],
   vintageSensitive: true,
   gtinResolvesVintage: false,
+  // A 0019 migracio szerint: a kiszereles KIKERULT a magbol, mert a boltok
+  // tobb mint felenel sehol nem szerepel. `contradiction_only` marad, tehat
+  // ismert elteres eseten tovabbra is kizar.
   identity_core: [
     'producer', 'grape_varieties', 'colour', 'vintage',
-    'volume_ml', 'pack_count', 'packaging_type',
+    'pack_count', 'packaging_type',
   ],
 };
 
@@ -48,7 +52,7 @@ const POLICY: MatchPolicy = {
     review: { minScore: 0.7 },
     ambiguousMargin: 0.03,
     volumeToleranceMl: 5,
-    priceRatioMax: 3.0,
+    priceRatioMax: 2.0,
   },
   fieldWeights: {
     producer: 0.18, expression: 0.28, vintage: 0.16, volume: 0.16,
@@ -154,9 +158,17 @@ describe('hianyzo bizonyitek -> emberhez', () => {
     expect(d.status).not.toBe('auto_verified');
   });
 
-  it('ismeretlen kiszereles -> NEM auto', () => {
+  it('ismeretlen kiszereles -> ATMEGY (a kiszereles nincs a magban)', () => {
+    // A boltok tobb mint felenel nincs kiszereles sem a nevben, sem a
+    // spec-tablaban. Ha ezt bizonyitando mezonek tartanank, a borok tobbsege
+    // sosem tudna automatikusan parosodni.
     const d = decide(canonical(), [candidate({ volumeMl: null })]);
-    expect(d.status).not.toBe('auto_verified');
+    expect(d.status).toBe('auto_verified');
+  });
+
+  it('ismeretlen kiszereles MINDKET oldalon -> atmegy', () => {
+    const d = decide(canonical({ volumeMl: null }), [candidate({ volumeMl: null })]);
+    expect(d.status).toBe('auto_verified');
   });
 
   it('ismeretlen szin -> NEM auto', () => {
@@ -202,14 +214,16 @@ describe('az ar: sosem utasit el, csak az automatikat tiltja', () => {
     expect(d.status).toBe('auto_verified');
   });
 
-  it('ketszeres ar -> meg atmegy', () => {
-    const d = decide(canonical(), [candidate({}, { priceHuf: 9980 })]);
+  it('80%-os kulonbseg -> meg atmegy', () => {
+    const d = decide(canonical(), [candidate({}, { priceHuf: 8982 })]);
     expect(d.status).toBe('auto_verified');
   });
 
-  it('negyszeres ar -> emberhez, de NEM elutasitva', () => {
+  it('haromszoros ar -> emberhez, de NEM elutasitva', () => {
     // A belepo es a premium tetel ugyanattol a boraszattol sokszorosan elter.
-    const d = decide(canonical(), [candidate({}, { priceHuf: 19960 })]);
+    // A 2x-es kuszob emellett a jeloletlen magnumot is elkapja - eppen azt a
+    // kockazatot, amit a kiszereles magbol valo kivetele nyitott.
+    const d = decide(canonical(), [candidate({}, { priceHuf: 14970 })]);
     expect(d.status).not.toBe('auto_verified');
     expect(d.status).not.toBe('rejected');
     expect(d.reasonCodes).toContain('PRICE_RATIO_IMPLAUSIBLE');

@@ -177,7 +177,7 @@ const DEFAULT_THRESHOLDS: MatchPolicy['thresholds'] = {
   review: { minScore: 0.7 },
   ambiguousMargin: 0.03,
   volumeToleranceMl: 5,
-  priceRatioMax: 3.0,
+  priceRatioMax: 2.0,
 };
 
 export async function getMatchPolicy(): Promise<MatchPolicy> {
