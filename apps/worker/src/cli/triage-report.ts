@@ -8,7 +8,9 @@
  *
  * Ezert fut ez a parancs a kapcsolo bekapcsolasa ELOTT. Semmit nem ir.
  *
- *   npm run match:triage
+ * Fejlesztoi gepen `npm run match:triage`, a futtato konteneren
+ * `npm run ops:triage` - ott nincs `tsx`, mert a runtime image
+ * `--omit=dev`-vel epul, es a `tsx` fejlesztoi fuggoseg.
  */
 import { closeDb, initDb, query } from '@radovin/db';
 import { configureLogger } from '@radovin/observability';

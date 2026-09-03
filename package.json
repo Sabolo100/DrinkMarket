@@ -36,6 +36,10 @@
     "wine:report": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-report.ts",
     "wine:apply": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/wine-apply-report.ts",
     "match:triage": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/triage-report.ts",
+    "ops:triage": "node apps/worker/dist/cli/triage-report.js",
+    "ops:apply": "node apps/worker/dist/cli/wine-apply-report.js",
+    "ops:mine": "node apps/worker/dist/cli/producer-mine.js",
+    "ops:wine-report": "node apps/worker/dist/cli/wine-report.js",
     "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts"
   },
   "devDependencies": {

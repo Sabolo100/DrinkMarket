@@ -6,9 +6,12 @@
  * megszamolja, hany listingen ismerne fel a rendszer a jovahagyott
  * boraszatokat, es mit tenne a mezokkel.
  *
- *   npm run wine:apply            -- csak a meg nem alkalmazott jovahagyasok
- *   npm run wine:apply -- --all   -- minden aktiv boraszat
- *   npm run wine:apply -- --write -- ELES futas: ir is
+ * Fejlesztoi gepen `npm run wine:apply`, a futtato konteneren `ops:apply` -
+ * ott nincs `tsx`, mert a runtime image `--omit=dev`-vel epul.
+ *
+ *   ... (nincs kapcsolo)  csak a meg nem alkalmazott jovahagyasok
+ *   ... -- --all          minden aktiv boraszat
+ *   ... -- --write        ELES futas: ir is
  */
 import { closeDb, initDb, query } from '@radovin/db';
 import { configureLogger } from '@radovin/observability';
