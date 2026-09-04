@@ -186,14 +186,27 @@ export function ApplyButton({ csrfToken, pending }: { csrfToken: string; pending
     setBusy(null);
   }
 
+  // Ha nincs függő jóváhagyás, a szűkített futásnak nincs mit feldolgoznia —
+  // ilyenkor a teljes újrakinyerés az értelmes művelet, és az kapja a
+  // hangsúlyt. A gomb tiltása őszintébb, mint egy „(0)" feliratú, néma gomb.
+  const hasPending = pending > 0;
+
   return (
     <div className="row-tight" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button className="btn btn-sm" disabled={busy !== null} onClick={() => run(false)}>
-        {busy === 'pending' ? '…' : `Alkalmazás most (${pending})`}
+      <button
+        className={`btn btn-sm${hasPending ? '' : ' btn-ghost'}`}
+        disabled={busy !== null || !hasPending}
+        onClick={() => run(false)}
+        title={hasPending
+          ? 'Csak a még nem alkalmazott jóváhagyásokra fut.'
+          : 'Nincs még nem alkalmazott jóváhagyás — nincs mit feldolgozni.'}
+      >
+        {busy === 'pending' ? '…' : `Csak az újak (${pending})`}
       </button>
       <button
-        className="btn btn-sm btn-ghost" disabled={busy !== null} onClick={() => run(true)}
-        title="Minden jóváhagyott borászatra újra lefuttatja a névfelbontást. Akkor kell, ha bővült a fajta- vagy dűlőszótár."
+        className={`btn btn-sm${hasPending ? ' btn-ghost' : ''}`}
+        disabled={busy !== null} onClick={() => run(true)}
+        title="Minden jóváhagyott borászatra újra lefuttatja a névfelbontást. Akkor kell, ha bővült a fajta- vagy dűlőszótár, vagy ha változtak a felismerés szabályai."
       >
         {busy === 'all' ? '…' : 'Teljes újrakinyerés'}
       </button>

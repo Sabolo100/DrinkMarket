@@ -101,17 +101,37 @@ export default async function ProducersPage({
         </div>
       )}
 
+      {/* A még nem alkalmazott jóváhagyások FIGYELMEZTETÉSE. Csak akkor van
+          mit mondani, ha van ilyen — de a gombok ettől függetlenül kellenek. */}
       {data.pendingApply > 0 && (
         <div className="callout" style={{ marginBottom: 16 }}>
           <p className="label" style={{ marginBottom: 4 }}>
             {data.pendingApply} jóváhagyott borászat még nem hatott a katalógusra
           </p>
-          <p style={{ margin: '0 0 8px' }}>
+          <p style={{ margin: 0 }}>
             A jóváhagyás önmagában nem tölti ki a termékek termelőjét: azt a rendszer a
             termék <strong>nevéből</strong> nyeri ki. Ehhez viszont nem kell újra begyűjteni
             a webshopot — a nevek már megvannak. Az újrakinyerés a jóváhagyás után magától
-            elindul; ez a gomb csak akkor kell, ha megakadt, vagy ha közben bővült a
-            fajta- és dűlőszótár.
+            elindul; alább akkor kell hozzányúlni, ha megakadt.
+          </p>
+        </div>
+      )}
+
+      {/* Az újrakinyerés MINDIG elérhető.
+          Korábban a fenti figyelmeztetés belsejében ült, tehát eltűnt, amint
+          minden jóváhagyás hatályba lépett. A teljes újrakinyerésre viszont
+          épp olyankor van szükség, amikor NEM új jóváhagyás miatt kell futni,
+          hanem mert megváltoztak a felismerés szabályai — bővült a fajta- vagy
+          dűlőszótár, pontosabb lett a kategória. Ilyenkor a `pendingApply`
+          nulla, és a gomb pont akkor volt láthatatlan, amikor kellett. */}
+      {total > 0 && (
+        <div className="callout" style={{ marginBottom: 16 }}>
+          <p className="label" style={{ marginBottom: 4 }}>Hatályba léptetés a katalóguson</p>
+          <p style={{ margin: '0 0 8px' }}>
+            Az újrakinyerés a <strong>már begyűjtött terméknevekből</strong> dolgozik — nem
+            kell hozzá újra végigjárni a webshopokat. A <strong>teljes</strong> változat minden
+            jóváhagyott borászatra újra lefuttatja a névfelbontást; akkor kell, ha bővült a
+            szótár, vagy ha változtak a felismerés szabályai.
           </p>
           <ApplyButton csrfToken={csrfToken} pending={data.pendingApply} />
         </div>
