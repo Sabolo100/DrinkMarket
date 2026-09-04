@@ -369,3 +369,48 @@ describe('pezsgo es csendes bor nem ugyanaz', () => {
     expect(d.status).not.toBe('rejected');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A tetelnev: a hianyzo ertek NEM lehet a megjelenitesi nev
+//
+// A kanonikus valtozat megjelenitesi neve az ot letrehozo bolt NYERS
+// terméknéve ("Sauska Cuvee 13 2022 Villanyi 14% 0,75l"). A jelolt oldalon
+// viszont az `expression` a parser MARADEKA ("13").
+//
+// Amig a `variantIdentity` a hianyzo `product_line` helyett a megjelenitesi
+// nevre esett vissza, a ket kulonbozo dolog kerult egymassal szembe - es
+// mivel az `expression` KEMENY kizaro jel, ebbol nem tartozkodas lett,
+// hanem NEMA ELUTASITAS valodi parokra.
+//
+// A csapda az volt, hogy ez rejtve maradt, amig a bolti oldalon ures volt az
+// `expression`. Az ujrakinyeres pontosan ezt tolti ki - a hiba tehat eppen a
+// javitastol elesedett volna.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('a tetelnev hianya tartozkodas, nem elutasitas', () => {
+  it('ismeretlen kanonikus tetelnev mellett a par NEM utasithato el', () => {
+    const d = decide(
+      canonical({ expression: null }),
+      [candidate({ expression: '13' })],
+    );
+    expect(d.status).not.toBe('rejected');
+    expect(d.reasonCodes.join(' ')).not.toContain('EXPRESSION');
+  });
+
+  it('ket ismert, elteroe tetelnev viszont tovabbra is kizar', () => {
+    // A vedokorlat nem tunhet el: ha MINDKET oldalon tudjuk a tetelnevet es
+    // azok kulonboznek, az ket kulon bor.
+    const d = decide(
+      canonical({ expression: 'Cuvée 13' }),
+      [candidate({ expression: 'Cuvée 5' })],
+    );
+    expect(d.status).toBe('rejected');
+  });
+
+  it('azonos tetelnev mellett a gep dont', () => {
+    const d = decide(
+      canonical({ expression: 'Cuvée 13' }),
+      [candidate({ expression: 'Cuvée 13' })],
+    );
+    expect(d.status).toBe('auto_verified');
+  });
+});

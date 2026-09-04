@@ -420,7 +420,23 @@ export async function generateVariantCandidates(
       categoryKey: r.category_key,
       producer: r.producer_name, producerId: r.producer_id,
       brand: r.brand_name, brandId: r.brand_id,
-      expression: r.product_line ?? r.canonical_display_name,
+      // A tetelnev CSAK a `product_line`. Nincs visszaeses a megjelenitesi
+      // nevre, es ez fontos:
+      //
+      // A kanonikus valtozat megjelenitesi neve az ot letrehozo bolt NYERS
+      // terméknéve ("Sauska Cuvee 13 2022 Villanyi 14% 0,75l"). A jelolt
+      // oldalon viszont az `expression` a parser MARADEKA ("13"). A ketto
+      // osszehasonlitasa nem almat almaval mer - es mivel az `expression`
+      // KEMENY kizaro jel, a kulonbseg nem tartozkodast, hanem NEMA
+      // ELUTASITAST szul valodi parokra.
+      //
+      // Amig a bolti oldalon nem volt kitoltve az `expression`, ez rejtve
+      // maradt (a hianyzo ertek `unknown`-t ad). Az ujrakinyeres viszont pont
+      // ezt tolti ki - vagyis a hiba eppen a javitastol elesedett volna.
+      //
+      // Ha nincs `product_line`, a helyes valasz a "nem tudjuk", nem egy
+      // rossz osszehasonlitas.
+      expression: r.product_line,
       vintageValue: r.vintage_value,
       vintageStatus: r.vintage_status as IdentityFields['vintageStatus'],
       ageStatementYears: r.age_statement_years,

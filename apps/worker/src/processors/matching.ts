@@ -307,6 +307,15 @@ async function promoteInsideLock(
 
   // Letezik-e mar ugyanez a termek? A zaron belul ez a keres MEGBIZHATO:
   // amig tartjuk, senki nem hozhat letre versenytarsat.
+  // A mezokeszlet SZANDEKOSAN azonos a fenti advisory lock kulcsaval
+  // (`canonicalIdentityKey`). Ha a ketto eltert, a zar nem azt vedte, amit ez
+  // a keres ellenoriz: ket listing, ami csak a duloben vagy a kiadasban ter
+  // el, KULON zarat kapott, tehat parhuzamosan futott - es mindketto sajat
+  // valtozatot hozott letre ugyanarra a borra.
+  //
+  // A dulot, a kiadast, a puttonyszamot es a kor-jelolest ezert ide is fel
+  // kell venni. Szigorubb lett a keres, es ez a helyes irany: ket kulon bor
+  // osszeolvasztasa sokkal dragabb, mint ket sor ugyanarrol.
   const already = await queryOne<{ id: string }>(
     `SELECT cv.id::text
        FROM canonical_variants cv
@@ -320,6 +329,11 @@ async function promoteInsideLock(
         AND cv.packaging_type                 = $7
         AND coalesce(cv.grape_signature,'')   = coalesce($8::text,'')
         AND coalesce(cv.wine_style_id::text,'') = coalesce($9::text,'')
+        AND coalesce(cv.vineyard_id::text,'')   = coalesce($10::text,'')
+        AND coalesce(cv.edition,'')             = coalesce($11::text,'')
+        AND coalesce(cv.puttony,-1)             = coalesce($12::int,-1)
+        AND coalesce(cv.age_statement_years,-1) = coalesce($13::int,-1)
+        AND coalesce(cv.vintage_status,'unknown') = coalesce($14::text,'unknown')
         AND cv.status <> 'merged'
       ORDER BY (cv.status = 'active') DESC, cv.created_at
       LIMIT 1`,
@@ -327,6 +341,8 @@ async function promoteInsideLock(
       categoryId, listing.producer_id, listing.brand_id, listing.vintage_value,
       listing.volume_ml, listing.pack_count ?? 1, listing.packaging_type,
       listing.grape_signature, listing.wine_style_id,
+      listing.vineyard_id, listing.edition, listing.puttony,
+      listing.age_statement_years, listing.vintage_status,
     ],
   );
 
@@ -364,13 +380,13 @@ async function promoteInsideLock(
         LIMIT 1
      ), inserted AS (
        INSERT INTO product_families
-         (category_id, producer_id, brand_id, canonical_name, region, colour,
+         (category_id, producer_id, brand_id, canonical_name, product_line, region, colour,
           origin_country, grape_varieties, wine_style_id, status, created_by)
        -- A $3 tipusat a fenti CTE ::text osszehasonlitasa rogziti, ezert itt
        -- kifejezetten vissza kell alakitani uuid-re. Enelkul a Postgres
        -- "column producer_id is of type uuid but expression is of type text"
        -- hibaval elszall - vagyis a valtozat-javaslat NEM tud letrejonni.
-       SELECT $1, nullif($3, '')::uuid, $4, $2, $5, $6, $7, $8, $10, 'proposed', $9
+       SELECT $1, nullif($3, '')::uuid, $4, $2, $11, $5, $6, $7, $8, $10, 'proposed', $9
         WHERE NOT EXISTS (SELECT 1 FROM existing)
        RETURNING id
      )
@@ -379,6 +395,12 @@ async function promoteInsideLock(
       categoryId, familyName, listing.producer_id, listing.brand_id,
       listing.region, listing.colour, listing.country_code,
       listing.grape_varieties ?? [], actorUserId, listing.wine_style_id,
+      // A TETELNEV. Enelkul a kanonikus oldal `expression`-je a megjelenitesi
+      // nevre esett vissza - vagyis a letrehozo bolt teljes NYERS nevere -,
+      // a jelolt oldalon viszont a parser rovid maradeka all. Az `expression`
+      // kemeny kizaro jel, tehat a ket kulonbozo dolog osszehasonlitasa
+      // valodi parokat utasitott volna el nemán.
+      listing.expression,
     ],
   );
   if (!family) return null;

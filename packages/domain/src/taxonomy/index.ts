@@ -57,6 +57,17 @@ export interface ResolveHit {
   via: 'exact' | 'alias' | 'shop_alias' | 'normalized';
 }
 
+/**
+ * Kategoriak, amik FELULIRJAK a tobbit a feloldasnal.
+ *
+ * A pezsgo, a champagne es az aszu magasabb rendu megkulonboztetes, mint a
+ * szin vagy a fajta: ha a szoveg barhol kimondja oket, az dont. A sorrend
+ * kozottuk nem szamit, mert egy szovegben egyszerre nem fordulnak elo -
+ * es ha megis, a `champagne` a szukebb, tehat azt a leghosszabb-alias
+ * szabaly amugy is elore hozna.
+ */
+const OVERRIDING_CATEGORIES = new Set(['champagne', 'sparkling_wine', 'tokaji_aszu']);
+
 export class Taxonomy {
   private readonly brandByNorm = new Map<string, TaxonomyEntity>();
   private readonly producerByNorm = new Map<string, TaxonomyEntity>();
@@ -162,19 +173,50 @@ export class Taxonomy {
     return scored.sort((a, b) => b.similarity - a.similarity).slice(0, limit);
   }
 
+  /**
+   * Kategoria feloldasa egy morzsaut-elembol vagy egy terméknévbol.
+   *
+   * A reszszo-keres korabban az ELSO talalatot adta vissza, a Map beszurasi
+   * sorrendjeben. Ez nem semleges sorrend: a seedben a `wine` aliaszai
+   * (koztuk a `rose`) ELOBB allnak, mint a `sparkling_wine` aliaszai. Egy
+   * "Rose pezsgo" szovegbol ezert BOR lett, nem pezsgo.
+   *
+   * A hiba sulyat az adta meg, hogy a kategoria idokozben KEMENY kizaro
+   * jelle valt: a rossz besorolas mar nem csak pontot von, hanem nemán
+   * kizar - vagy eppen hamis egyezest ad.
+   *
+   * Ket szabaly dont, ebben a sorrendben:
+   *
+   *   1. A magasabb rendu ital-tipus felulir. Ha a szoveg BARHOL azt mondja,
+   *      hogy pezsgo (vagy champagne, aszu), akkor az a kategoria - meg
+   *      akkor is, ha mellette ott all a "rose" vagy egy szolofajta.
+   *   2. Egyebkent a LEGHOSSZABB illeszkedo alias nyer, mert az a
+   *      legspecifikusabb ("tokaji aszu" > "aszu", "pezsgo champagne" >
+   *      "pezsgo").
+   */
   resolveCategory(text: string): { key: string; id: string } | null {
     const norm = searchNorm(text);
     if (!norm) return null;
     const direct = this.categoryByAlias.get(norm);
     if (direct) return { key: direct.key, id: direct.id };
-    // Reszszo egyezes a kategoriautbol
+
+    const hits: Array<{ key: string; id: string; alias: string }> = [];
     for (const [aliasNorm, cat] of this.categoryByAlias) {
-      if (aliasNorm.length < 3) continue;
-      if (norm.includes(` ${aliasNorm} `) || norm.startsWith(`${aliasNorm} `) || norm.endsWith(` ${aliasNorm}`)) {
-        return { key: cat.key, id: cat.id };
+      if (!aliasNorm || aliasNorm.length < 3) continue;
+      if (norm === aliasNorm
+        || norm.includes(` ${aliasNorm} `)
+        || norm.startsWith(`${aliasNorm} `)
+        || norm.endsWith(` ${aliasNorm}`)) {
+        hits.push({ key: cat.key, id: cat.id, alias: aliasNorm });
       }
     }
-    return null;
+    if (!hits.length) return null;
+
+    const override = hits.find((h) => OVERRIDING_CATEGORIES.has(h.key));
+    if (override) return { key: override.key, id: override.id };
+
+    hits.sort((a, b) => b.alias.length - a.alias.length || a.key.localeCompare(b.key));
+    return { key: hits[0]!.key, id: hits[0]!.id };
   }
 
   /** Alias-resolver a comparator szamara. */

@@ -100,7 +100,23 @@ export function variantIdentity(row: VariantRow): IdentityFields {
     producerId: row.producer_id,
     brand: row.brand_name,
     brandId: row.brand_id,
-    expression: row.product_line ?? row.canonical_display_name,
+    // A tetelnev CSAK a `product_line`. Nincs visszaeses a megjelenitesi
+    // nevre, es ez fontos:
+    //
+    // A kanonikus valtozat megjelenitesi neve az ot letrehozo bolt NYERS
+    // terméknéve ("Sauska Cuvee 13 2022 Villanyi 14% 0,75l"). A jelolt
+    // oldalon viszont az `expression` a parser MARADEKA ("13"). A ketto
+    // osszehasonlitasa nem almat almaval mer - es mivel az `expression`
+    // KEMENY kizaro jel, a kulonbseg nem tartozkodast, hanem NEMA
+    // ELUTASITAST szul valodi parokra.
+    //
+    // Amig a bolti oldalon nem volt kitoltve az `expression`, ez rejtve
+    // maradt (a hianyzo ertek `unknown`-t ad). Az ujrakinyeres viszont pont
+    // ezt tolti ki - vagyis a hiba eppen a javitastol elesedett volna.
+    //
+    // Ha nincs `product_line`, a helyes valasz a "nem tudjuk", nem egy
+    // rossz osszehasonlitas.
+    expression: row.product_line,
     vintageValue: row.vintage_value,
     vintageStatus: row.vintage_status as IdentityFields['vintageStatus'],
     ageStatementYears: row.age_statement_years,
