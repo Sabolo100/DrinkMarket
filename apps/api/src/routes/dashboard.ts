@@ -18,6 +18,10 @@ export async function dashboardRoutes(app: FastifyInstance, _config: AppConfig):
     const [general, publication, shops] = await Promise.all([
       queryOne<Record<string, number>>(
         `SELECT
+           -- A katalogus TENYLEGES merete. Az active emberi jovahagyast
+           -- jelent, amit a gepi felfedezes sosem ad - a fooldal fo szama
+           -- ezert allandoan 0 volt, holott huszezer valtozat volt bent.
+           (SELECT count(*)::int FROM canonical_variants WHERE status <> 'merged')                      AS variants_total,
            (SELECT count(*)::int FROM canonical_variants WHERE status = 'active')                       AS variants_active,
            (SELECT count(*)::int FROM canonical_variants WHERE status = 'proposed')                     AS variants_proposed,
            (SELECT count(*)::int FROM market_variant_summary ms

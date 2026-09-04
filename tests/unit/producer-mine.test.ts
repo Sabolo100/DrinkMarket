@@ -236,3 +236,62 @@ describe('atfedo nevvaltozatok feloldasa', () => {
   });
 
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bor-szokincs a jeloltek kozott
+//
+// A felhasznalo ezt latta a jeloltlistan:
+//   Sauska · Sauska Brut · Sauska Extra Dry · Sauska Puttonyos
+//
+// Ezek nem kulon boraszatok, hanem ugyanannak a pinceszetnek a borai. A
+// tobblet-token minden esetben BOR-szokincs - es ez az, ami megkulonbozteti
+// oket a "Chateau Haut Brion" mintatol, ahol a "brion" valodi nevresz.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('bor-szokincs a jeloltnevekben', () => {
+  function inputs(rows: Array<[string, string]>): MineInput[] {
+    return rows.map(([shopKey, name]) => ({
+      shopKey, rawName: name, residueTokens: name.toLowerCase().split(' '),
+    }));
+  }
+
+  it('a "brut" nem lehet boraszatnev', () => {
+    const out = mineProducerCandidates(
+      inputs([
+        ['a', 'brut pezsgo egy'], ['b', 'brut pezsgo ketto'],
+        ['a', 'brut pezsgo harom'], ['b', 'brut pezsgo negy'],
+      ]),
+      { minCount: 2, minShops: 1 },
+    );
+    expect(out.map((c) => c.name)).not.toContain('brut');
+    expect(out.map((c) => c.name)).not.toContain('pezsgo');
+  });
+
+  it('a "Sauska Brut" beleolvad a "Sauska"-ba', () => {
+    const out = mineProducerCandidates(
+      inputs([
+        ['a', 'sauska kekfrankos'], ['b', 'sauska furmint'], ['a', 'sauska syrah'],
+        ['b', 'sauska brut'], ['a', 'sauska brut'],
+      ]),
+      { minCount: 2, minShops: 1 },
+    );
+    const names = out.map((c) => c.name);
+    expect(names).toContain('sauska');
+    expect(names).not.toContain('sauska brut');
+  });
+
+  it('a valodi hosszabb nev MEGMARAD, ha nem bor-szokincs a tobblet', () => {
+    // Ez a vedokorlat: a "chateau haut brion" es a "chateau haut bailly"
+    // ket kulon birtok, barmilyen ritkabbak is a "chateau haut"-nal.
+    const out = mineProducerCandidates(
+      inputs([
+        ['a', 'chateau haut brion'], ['b', 'chateau haut brion'],
+        ['a', 'chateau haut bailly'], ['b', 'chateau haut bailly'],
+        ['a', 'chateau haut valami'],
+      ]),
+      { minCount: 2, minShops: 1 },
+    );
+    const names = out.map((c) => c.name);
+    expect(names).toContain('chateau haut brion');
+    expect(names).toContain('chateau haut bailly');
+  });
+});

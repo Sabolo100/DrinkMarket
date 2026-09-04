@@ -405,10 +405,18 @@ async function promoteInsideLock(
   );
   if (!family) return null;
 
-  // Hianyos identitas -> proposed (spec 8.3)
-  const hasRequiredEvidence = Boolean(listing.volume_ml);
-  const status = hasRequiredEvidence && listing.category_key && listing.category_key !== 'uncategorized'
-    ? 'proposed' : 'proposed';
+  // A gepi felfedezes MINDIG `proposed`-ot ad, es ez nem mulasztas.
+  //
+  // Az `active` allapot ezen a tablan azt jelenti, hogy EMBER hagyta jova:
+  // a `/products/:id/approve` allitja at, es egyutt irja az `approved_by`-t
+  // meg az `approved_at`-et. Ha a felfedezes maga adna `active`-ot, olyan
+  // jovahagyast allitana, ami sosem tortent meg.
+  //
+  // Korabban itt egy feltetel allt, aminek MINDKET aga `proposed`-ot adott.
+  // Ugy festett, mintha dontene valamirol, de nem dontott semmirol - es a
+  // latszat rosszabb a hianynal: az olvaso azt hiszi, a teljes azonossagu
+  // valtozat mashogy viselkedik.
+  const status = 'proposed';
 
   const variant = await queryOne<{ id: string }>(
     `INSERT INTO canonical_variants
@@ -485,12 +493,22 @@ async function linkListingToVariant(
     [variantId, listingId, shopId, actorUserId ? 'human' : 'auto', identityHash],
   );
   await execute(`UPDATE source_listings SET cluster_status = 'clustered' WHERE id = $1`, [listingId]);
+  // A cimke KOVESSE a valosagot. Korabban ez fixen `human_verified` volt -
+  // meg akkor is, amikor senki nem nezte meg: a valtozatot letrehozo
+  // listing sajat kapcsolata gepi.
+  //
+  // Ket kar szarmazott belole. Az audit hamisat allitott, es - ami
+  // gyakorlatibb - az `ops:recheck` mindket igazolt allapotot kihagyja,
+  // tehat egy gepi tevedes SOHA nem kerult volna ujraertekelesre.
+  //
+  // A `match_relations.decision_origin` mar eddig is helyesen kulonboztetett;
+  // csak ez a mezo mondott mast ugyanarrol az esemenyrol.
   await execute(
     `INSERT INTO variant_shop_status (canonical_variant_id, shop_id, status, matched_listing_id, last_search_at)
-     VALUES ($1,$2,'human_verified',$3, now())
+     VALUES ($1,$2,$4,$3, now())
      ON CONFLICT (canonical_variant_id, shop_id) DO UPDATE
        SET status = EXCLUDED.status, matched_listing_id = EXCLUDED.matched_listing_id`,
-    [variantId, shopId, listingId],
+    [variantId, shopId, listingId, actorUserId ? 'human_verified' : 'auto_verified'],
   );
   // A tobbi webshopra azonnal keresest utemezunk
   await execute(

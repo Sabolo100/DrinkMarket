@@ -256,12 +256,29 @@ function runMatchPass(
       };
 
       const multi = MULTI_VALUED.has(cand.slot);
-      if (multi) {
-        if (result.grapes.some((g) => g.id === cand.id)) continue;
-      } else if (slotFilled(result, cand.slot)) {
-        // Mas entitas ugyanarra az egyertekű slotra: ketertelmuseg. A tokent
-        // NEM fogyasztjuk el, hogy a maradekban lathato maradjon.
-        if (slotId(result, cand.slot) !== cand.id) result.ambiguous.push(match);
+
+      // UGYANAZ az entitas masodszor. Nincs benne ketertelmuseg - a
+      // "Torley Brut pezsgo" nevben a `brut` es a `pezsgo` ugyanaz a
+      // bortipus -, ezert a tokent EL KELL FOGYASZTANI.
+      //
+      // Korabban itt egy `continue` allt a fogyasztas elott, tehat a
+      // masodik elofordulas bennmaradt a maradekban. A maradek viszont ket
+      // helyre megy tovabb: az `expression` mezobe, es a boraszat-banyaszat
+      // bemenetere. Az utobbibol lett a baj: a "pezsgo" boraszatjeloltkent
+      // jelent meg a listan.
+      const sameEntityAgain = multi
+        ? result.grapes.some((g) => g.id === cand.id)
+        : (slotFilled(result, cand.slot) && slotId(result, cand.slot) === cand.id);
+      if (sameEntityAgain) {
+        for (let k = 0; k < n; k++) consumed[i + k] = true;
+        i += n - 1;
+        break;
+      }
+
+      if (!multi && slotFilled(result, cand.slot)) {
+        // MAS entitas ugyanarra az egyertekű slotra: valodi ketertelmuseg.
+        // A tokent NEM fogyasztjuk el, hogy a maradekban lathato maradjon.
+        result.ambiguous.push(match);
         continue;
       }
 

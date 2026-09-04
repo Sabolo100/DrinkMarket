@@ -104,6 +104,32 @@ const CONNECTORS = new Set([
   'es', 'and', 'und', 'von', 'van', 'zu', 'of', 'y', 'e', 'i',
 ]);
 
+/**
+ * BOR-szokincs: a bor sajatja, nem a boraszate.
+ *
+ * Ket helyen szamit. Egyreszt ezek soha nem lehetnek boraszatnevek -
+ * masreszt, ha egy hosszabb jeloltnev csak ezekben ter el egy rovidebbtol,
+ * akkor a hosszabb nem kulon boraszat, hanem ugyanaz a pinceszet EGY BORA:
+ *
+ *   Sauska · Sauska Brut · Sauska Extra Dry · Sauska Puttonyos
+ *
+ * Ez az a minta, amit a felhasznalo a jeloltlistan latott.
+ */
+const WINE_TERMS = new Set([
+  // pezsgo es dozazs
+  'pezsgo', 'pezsgok', 'gyongyozo', 'habzobor', 'brut', 'sec', 'demi', 'doux',
+  'dosage', 'prosecco', 'cava', 'cremant', 'sekt', 'spumante', 'frizzante',
+  'franciacorta', 'asti', 'lambrusco', 'petnat',
+  // edesseg, aszu
+  'puttonyos', 'puttony', 'aszu', 'szamorodni', 'edes', 'szaraz', 'felszaraz',
+  'feledes', 'esszencia', 'forditas', 'maslas', 'jegbor',
+  // szin es tipus
+  'voros', 'vorosbor', 'feher', 'feherbor', 'rose', 'roze', 'siller',
+  'narancsbor', 'cuvee', 'kuve',
+  // egyeb bor-szokincs
+  'birtokbor', 'dulo', 'muzeum', 'muzealis', 'barrique', 'tannin',
+]);
+
 const NUMERIC_RE = /^[\d.,%]+$/;
 
 export interface MineInput {
@@ -153,7 +179,8 @@ interface Acc {
 }
 
 function isNoise(token: string): boolean {
-  return !token || token.length < 2 || NUMERIC_RE.test(token) || STOPWORDS.has(token);
+  return !token || token.length < 2 || NUMERIC_RE.test(token)
+    || STOPWORDS.has(token) || WINE_TERMS.has(token);
 }
 
 /**
@@ -266,9 +293,31 @@ function dedupeByContainment(cands: readonly ProducerCandidate[]): ProducerCandi
   for (const short of cands) {
     for (const long of cands) {
       if (short.name === long.name) continue;
-      if (short.count !== long.count) continue;
-      if (!isEdgeSubsequence(tokens.get(short.name)!, tokens.get(long.name)!)) continue;
-      dropped.add(short.name);
+      const st = tokens.get(short.name)!;
+      const lt = tokens.get(long.name)!;
+      if (!isEdgeSubsequence(st, lt)) continue;
+
+      if (short.count === long.count) {
+        // A rovidebb MINDIG a hosszabb reszekent fordul elo - onmagaban
+        // semmit nem azonosit.
+        dropped.add(short.name);
+        continue;
+      }
+
+      // Eltero darabszam. A fenti indoklas szerint a "ritkabb hosszabb"
+      // altalaban NEM dobhato el - de van egy eset, ahol biztonsagos:
+      // ha a tobblet-tokenek mind BOR-szokincs.
+      //
+      // A "Sauska Brut" nem masik boraszat, hanem a Sauska egy bora. A
+      // "Chateau Haut Brion" viszont valodi birtok, mert a "brion" nem
+      // bor-szokincs - ott tovabbra is tartozkodunk.
+      //
+      // A kulonbseget tehat nem a szamokbol allapitjuk meg (abbol nem is
+      // lehet), hanem a SZOKINCSBOL.
+      const extra = lt.filter((t) => !st.includes(t));
+      if (extra.length && extra.every((t) => WINE_TERMS.has(t))) {
+        dropped.add(long.name);
+      }
     }
   }
   return cands.filter((c) => !dropped.has(c.name));

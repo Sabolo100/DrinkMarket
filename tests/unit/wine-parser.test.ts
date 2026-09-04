@@ -235,3 +235,45 @@ describe('grapeSignature', () => {
     expect(grapeSignature([])).toBeNull();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Az UGYANAZ az entitas ketszer a nevben
+//
+// A "Torley Brut pezsgo" nevben a `brut` es a `pezsgo` UGYANAZ a bortipus.
+// Nincs benne ketertelmuseg - megis, a masodik elofordulas korabban nem
+// fogyott el, es bennmaradt a maradekban.
+//
+// A maradek ket helyre megy tovabb: az `expression` mezobe es a
+// boraszat-banyaszat bemenetere. Az utobbibol lett a baj: a bortipus neve
+// boraszatjeloltkent jelent meg a listan.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('ismetelt azonos entitas a nevben', () => {
+  it('a masodik elofordulas nem szivarog a maradekba', () => {
+    const r = parseWineName('Sauska vörös vörösbor 2019', VOCAB);
+    expect(r.style?.id).toBe('s-red');
+    // A "vorosbor" ugyanaz a bortipus - nem maradhat a maradekban.
+    expect(r.expression ?? '').not.toContain('voros');
+    expect(r.ambiguous).toHaveLength(0);
+  });
+
+  it('ismetelt fajta sem szivarog', () => {
+    const r = parseWineName('Sauska Kékfrankos Blaufränkisch 2019', VOCAB);
+    expect(r.grapes.map((g) => g.id)).toEqual(['g-kekfrankos']);
+    expect(r.expression ?? '').not.toContain('blaufrankisch');
+  });
+
+  it('KET KULONBOZO bortipus tovabbra is ketertelmuseg', () => {
+    // Ez a vedokorlat: a valodi ellentmondast latnia kell a rendszernek.
+    const r = parseWineName('Sauska rosé vörös 2019', VOCAB);
+    expect(r.style?.id).toBe('s-rose');
+    expect(r.ambiguous.map((m) => m.id)).toContain('s-red');
+  });
+
+  it('a szabalyos nevet nem rontja el', () => {
+    const r = parseWineName('Sauska Villányi Kékfrankos 2019 0,75 l', VOCAB);
+    expect(r.producer?.id).toBe('p-sauska');
+    expect(r.grapes.map((g) => g.id)).toEqual(['g-kekfrankos']);
+    expect(r.region?.id).toBe('r-villany');
+    expect(r.vintageValue).toBe(2019);
+  });
+});

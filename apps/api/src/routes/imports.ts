@@ -247,7 +247,12 @@ export async function importRoutes(app: FastifyInstance, config: AppConfig): Pro
           `SELECT cv.id, cv.canonical_display_name
              FROM canonical_variants cv
              JOIN product_families pf ON pf.id = cv.product_family_id
-            WHERE cv.status = 'active'
+            -- NEM csak az active. Az active ezen a tablan emberi
+            -- jovahagyast jelent, a gepi felfedezes viszont mindig
+            -- proposed-ot ad - vagyis ez a vizsgalat a katalogus
+            -- tulnyomo reszet nem is latta, es az import duplikatumot
+            -- hozott letre olyan termekre, ami mar bent volt.
+            WHERE cv.status <> 'merged'
               AND cv.volume_ml = $1 AND cv.pack_count = $2
               AND coalesce(cv.vintage_value, -1) = coalesce($3::int, -1)
               AND rv_search_norm(pf.canonical_name) = rv_search_norm($4)

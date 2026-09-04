@@ -297,7 +297,10 @@ export default async function DashboardPage({
 
 function GeneralTally({ g }: { g: Record<string, number> }) {
   const cells: Array<{ label: string; value: number; sub?: string; tone?: 'alert' | 'good' }> = [
-    { label: 'Kanonikus változat', value: g['variants_active'] ?? 0, sub: `+${g['variants_proposed'] ?? 0} javasolt` },
+    // A fő szám a katalógus mérete. Korábban a jóváhagyottak száma állt itt,
+    // ami a gépi felfedezés mellett mindig 0 — a csempe azt sugallta, hogy
+    // üres a katalógus, miközben tele volt.
+    { label: 'Kanonikus változat', value: g['variants_total'] ?? 0, sub: `${g['variants_active'] ?? 0} jóváhagyva` },
     { label: 'Legalább 2 bolt', value: g['variants_multi_shop'] ?? 0, sub: 'valódi összehasonlítás', tone: 'good' },
     { label: 'Csak 1 boltban', value: g['variants_single_shop'] ?? 0, sub: 'nincs viszonyítás' },
     { label: 'Klaszterezetlen listing', value: g['listings_unclustered'] ?? 0, sub: `${g['listings_total'] ?? 0} listingből` },
