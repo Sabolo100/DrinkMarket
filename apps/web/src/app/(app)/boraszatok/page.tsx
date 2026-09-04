@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { apiSafe, currentSession, ago } from '@/lib/api';
 import { ProducerActions, MineButton, ApplyButton, ProducerSearch } from './ProducerActions';
+import { ApplyStatusBar } from './ApplyStatusBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,6 +117,10 @@ export default async function ProducersPage({
           </p>
         </div>
       )}
+
+      {/* A futás állapota. A `job_runs`-ból olvas, tehát túléli az
+          oldalváltást — a gomb saját üzenete nem élte túl. */}
+      <ApplyStatusBar />
 
       {/* Az újrakinyerés MINDIG elérhető.
           Korábban a fenti figyelmeztetés belsejében ült, tehát eltűnt, amint

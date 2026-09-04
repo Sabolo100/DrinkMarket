@@ -257,6 +257,58 @@ export async function producerRoutes(app: FastifyInstance, config: AppConfig): P
     };
   });
 
+  // ── Az ujrakinyeres allapota ─────────────────────────────────────────────
+  //
+  // A gomb megnyomasa utan a felulet egy dolt betus uzenetet mutatott, de az
+  // a komponens sajat allapota volt: egy oldalvaltas elmosta. A futas
+  // ilyenkor tovabb ment, csak semmi nem mondta meg. Egy husz percig tarto
+  // muveletnel ez hasznalhatatlan - az ember nem tudja, varjon-e vagy
+  // inditsa ujra (ez utobbi amugy sem tenne semmit, a kozos
+  // idempotencia-kulcs elnyelne).
+  //
+  // A `job_runs` mar eddig is tudta a valaszt; csak nem kerdezte senki.
+  app.get('/producers/apply/status', async (req) => {
+    requireAtLeast(req.user, 'catalog_manager');
+
+    // A `::text` cast SZANDEKOSAN nincs itt. A Postgres szoveges alakja
+    // ("2026-09-04 20:06:37+00") szokozt hasznal, amit a JS `Date` csak
+    // motorfuggoen fogad el - Safariban `Invalid Date` lenne belole, es a
+    // savon ertelmetlen idot latnank. Igy a driver Date-et ad, a JSON pedig
+    // szabvanyos ISO alakot.
+    const run = await queryOne<{
+      status: string; queued_at: Date; started_at: Date | null;
+      finished_at: Date | null; duration_ms: number | null;
+      error_message: string | null; result: Record<string, unknown> | null;
+      payload: Record<string, unknown> | null;
+    }>(
+      `SELECT status, queued_at, started_at, finished_at,
+              duration_ms, error_message, result, payload
+         FROM job_runs
+        WHERE queue = 'product-ingest' AND job_name = 'reextract-listings'
+        ORDER BY queued_at DESC LIMIT 1`,
+    );
+
+    if (!run) return { state: 'never', run: null };
+
+    // A `queued` es a `running` egyarant "dolgozik" a felhasznalo szemszogebol:
+    // az elso azt jelenti, hogy mar bekuldtuk, csak meg nem vette fel senki.
+    const active = run.status === 'queued' || run.status === 'running';
+
+    return {
+      state: active ? 'active' : run.status,
+      run: {
+        status: run.status,
+        queuedAt: run.queued_at.toISOString(),
+        startedAt: run.started_at?.toISOString() ?? null,
+        finishedAt: run.finished_at?.toISOString() ?? null,
+        durationMs: run.duration_ms,
+        errorMessage: run.error_message,
+        full: Boolean((run.payload as { all?: boolean } | null)?.all),
+        result: run.result,
+      },
+    };
+  });
+
   // ── Banyaszat inditasa ───────────────────────────────────────────────────
   app.post('/producers/mine', async (req) => {
     const actor = requireAtLeast(req.user, 'catalog_manager');
