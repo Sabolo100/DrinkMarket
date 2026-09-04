@@ -18,6 +18,7 @@ import type { WineParseResult } from '@radovin/domain';
 const STYLE_PEZSGO = 'style-pezsgo';
 const STYLE_SZARAZ = 'style-szaraz';
 const STYLE_ASZU = 'style-aszu';
+const STYLE_ROSE_LIKE = 'style-rose';
 
 const CAT = {
   wine: 'cat-wine',
@@ -30,32 +31,47 @@ const lookups: WineLookups = {
   grapeColour: new Map(),
   styleSparkling: new Map([
     [STYLE_PEZSGO, true], [STYLE_SZARAZ, false], [STYLE_ASZU, false],
+    [STYLE_ROSE_LIKE, false],
   ]),
   stylePuttony: new Map([
     [STYLE_PEZSGO, false], [STYLE_SZARAZ, false], [STYLE_ASZU, true],
+    [STYLE_ROSE_LIKE, false],
   ]),
   categoryIdByKey: new Map(Object.entries(CAT)),
 };
 
 function parsed(opts: {
-  producer?: boolean; styleId?: string | null; grapes?: number;
+  producer?: boolean;
+  /** A NYERTES stilus-slot. */
+  styleId?: string | null;
+  /** Az egyertekű slotrol LESZORULT tovabbi stilusok. */
+  ambiguousStyles?: string[];
+  grapes?: number;
+  tokens?: string[];
 }): WineParseResult {
   const slot = (id: string) => ({
     slot: 'style' as const, id, canonicalName: id, matchedText: id,
-    start: 0, end: 1, viaAlias: null,
+    startToken: 0, tokenCount: 1, viaAlias: null,
   });
+  const grapes = Array.from({ length: opts.grapes ?? 0 }, (_, i) => ({
+    slot: 'grape' as const, id: `g${i}`, canonicalName: `g${i}`, matchedText: `g${i}`,
+    startToken: 0, tokenCount: 1, viaAlias: null,
+  }));
+  const style = opts.styleId ? slot(opts.styleId) : null;
+  const ambiguous = (opts.ambiguousStyles ?? []).map(slot);
   return {
     producer: opts.producer === false
       ? null
-      : { slot: 'producer', id: 'p1', canonicalName: 'Sauska', matchedText: 'sauska', start: 0, end: 1, viaAlias: null },
+      : { slot: 'producer', id: 'p1', canonicalName: 'Sauska', matchedText: 'sauska', startToken: 0, tokenCount: 1, viaAlias: null },
     vineyard: null,
     region: null,
-    style: opts.styleId ? slot(opts.styleId) : null,
-    grapes: Array.from({ length: opts.grapes ?? 0 }, (_, i) => ({
-      slot: 'grape' as const, id: `g${i}`, canonicalName: `g${i}`, matchedText: `g${i}`,
-      start: 0, end: 1, viaAlias: null,
-    })),
-    vintageValue: null, expression: null, matches: [], ambiguous: [], tokens: [],
+    style,
+    grapes,
+    vintageValue: null, expression: null,
+    // A parser a hozzarendelt talalatokat a `matches`-be is beteszi.
+    matches: [...(style ? [style] : []), ...grapes],
+    ambiguous,
+    tokens: opts.tokens ?? [],
   } as unknown as WineParseResult;
 }
 
@@ -84,8 +100,18 @@ describe('besorolatlan sor', () => {
     expect(wineCategoryFor(parsed({}), lookups, null)).toBeNull();
   });
 
-  it('boraszat nelkul semmi', () => {
-    expect(wineCategoryFor(parsed({ producer: false, grapes: 2 }), lookups, null)).toBeNull();
+  it('a FAJTA onmagaban bizonyitja a bort, boraszat nelkul is', () => {
+    // A felhasznalo szabalya: ha a nevben barhol van szolofajta, az biztos
+    // bor - meg ha a "bor" szo nincs is benne. Enelkul a besorolas csak a
+    // jovahagyott boraszatu sorokra jutott volna el, azaz a katalogus
+    // toredekere.
+    expect(wineCategoryFor(parsed({ producer: false, grapes: 2 }), lookups, null))
+      .toBe(CAT.wine);
+  });
+
+  it('a bortipus onmagaban is eleg', () => {
+    expect(wineCategoryFor(parsed({ producer: false, styleId: STYLE_SZARAZ }), lookups, null))
+      .toBe(CAT.wine);
   });
 });
 
@@ -115,5 +141,68 @@ describe('mar besorolt sor helyesbitese', () => {
 
   it('tomeny kategoriahoz sosem nyulunk', () => {
     expect(wineCategoryFor(parsed({ styleId: STYLE_PEZSGO }), lookups, 'whisky')).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A pezsgo FELULIR mindent
+//
+// A parser egyertekű slotokat tolt, es a stilus-slotot a nevben ELOL allo
+// talalat nyeri. A "Sauska Rose Brut pezsgo" nevben a `rose` all elol, tehat
+// AZ nyer - a `brut` es a `pezsgo` az `ambiguous` listaba kerul.
+//
+// Aki csak a nyertes slotot nezi, abbol CSENDES ROSE-t csinal. A felhasznalo
+// szabalya viszont egyertelmu: ha a nevben BARHOL ott van, hogy pezsgo, az
+// pezsgo - meg akkor is, ha mellette rose vagy Chardonnay all.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('a pezsgo felulir minden mas stilust', () => {
+  it('rose nyerte a slotot, de a pezsgo ott van a nevben -> sparkling_wine', () => {
+    expect(wineCategoryFor(
+      parsed({ styleId: STYLE_ROSE_LIKE, ambiguousStyles: [STYLE_PEZSGO] }), lookups, null,
+    )).toBe(CAT.sparkling_wine);
+  });
+
+  it('pezsgo szolofajta mellett is pezsgo marad', () => {
+    expect(wineCategoryFor(
+      parsed({ styleId: STYLE_ROSE_LIKE, ambiguousStyles: [STYLE_PEZSGO], grapes: 1 }),
+      lookups, null,
+    )).toBe(CAT.sparkling_wine);
+  });
+
+  it('a korabban wine-ra allitott rose pezsgo JAVUL', () => {
+    expect(wineCategoryFor(
+      parsed({ styleId: STYLE_ROSE_LIKE, ambiguousStyles: [STYLE_PEZSGO] }), lookups, 'wine',
+    )).toBe(CAT.sparkling_wine);
+  });
+
+  it('pezsgo nelkul a rose csendes bor marad', () => {
+    expect(wineCategoryFor(parsed({ styleId: STYLE_ROSE_LIKE }), lookups, null))
+      .toBe(CAT.wine);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Ami NEM bor
+//
+// A fajta onmagaban bizonyitja a bort - de egy "Kadarka palinka" nevben is
+// ott a Kadarka. A tomeny nem kaphat bor-besorolast.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('a tomeny nem bor, meg fajtaval sem', () => {
+  it('Kadarka palinka -> nincs bor-besorolas', () => {
+    expect(wineCategoryFor(
+      parsed({ grapes: 1, tokens: ['kadarka', 'palinka'] }), lookups, null,
+    )).toBeNull();
+  });
+
+  it('whisky -> nincs bor-besorolas', () => {
+    expect(wineCategoryFor(
+      parsed({ grapes: 1, tokens: ['single', 'malt', 'whisky'] }), lookups, null,
+    )).toBeNull();
+  });
+
+  it('a bor-nevet nem zavarja a szures', () => {
+    expect(wineCategoryFor(
+      parsed({ grapes: 1, tokens: ['sauska', 'kekfrankos', '2019'] }), lookups, null,
+    )).toBe(CAT.wine);
   });
 });

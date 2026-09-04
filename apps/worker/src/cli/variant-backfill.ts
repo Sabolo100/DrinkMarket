@@ -80,6 +80,91 @@ const SOURCE_SQL = `
    ORDER BY cv.id, sl.extraction_quality DESC NULLS LAST
 `;
 
+/** Egy tranzakcioba fero sorok szama. */
+const CHUNK = 100;
+const NL = String.fromCharCode(10);
+const KATEGORIA_FEJLEC =
+  '══ A KANONIKUS OLDAL KATEGORIAJA ════════════════════════';
+
+/**
+ * A kanonikus oldal KATEGORIAJANAK helyesbitese.
+ *
+ * Kulon fuggveny, mert kulon problema: a fenti potlas a listingbol masol
+ * hianyzo mezoket, ez viszont a valtozat SAJAT bortipusabol vezeti le a
+ * csalad besorolasat. A ketto fuggetlen egymastol - eloszor egy agon voltak,
+ * es emiatt a kategoria-javitas kimaradt, valahanyszor nem volt mit potolni
+ * a listingekbol. Pedig eppen az ilyen valtozatoknal a legrosszabb a helyzet.
+ */
+async function fixFamilyCategories(write: boolean): Promise<void> {
+  // ── A KANONIKUS OLDAL KATEGORIAJA ────────────────────────────────────────
+  //
+  // A csalad kategoriaja a LETREHOZASKOR rogzul, az akkori listingbol
+  // (promoteListingToVariant), es utana semmi nem javitja. A valtozatok
+  // tulnyomo tobbsege akkor keletkezett, amikor a listingek meg
+  // besorolatlanok voltak - a csaladjuk ezert uncategorized maradt.
+  //
+  // A kovetkezmenye pontosan az volt, amit a feluleten lattunk: egy pezsgo
+  // melle csendes borokat kinalt a rendszer. A kategoria-osszehasonlitas
+  // KET ismert erteket kovetel; ha a kanonikus oldal besorolatlan, akkor
+  // hiaba helyes a jelolt oldala, a jel tartozkodik.
+  //
+  // A forras a valtozat SAJAT bortipusa: ha az pezsgo, a csalad
+  // sparkling_wine, ha aszu, akkor tokaji_aszu. Nem talalunk ki semmit -
+  // azt mondjuk ki, amit a valtozat mar tud magarol.
+  //
+  // Csak a besorolatlan es az atalanyos wine javithato. Barmely mas
+  // besorolas (kezi, champagne, tomeny) erintetlen marad.
+  const catRows = await query<{ family_id: string; cel: string; jelenlegi: string }>(
+    `SELECT DISTINCT ON (pf.id)
+            pf.id::text AS family_id,
+            CASE WHEN ws.sparkling THEN 'sparkling_wine'
+                 WHEN ws.puttony_relevant THEN 'tokaji_aszu'
+                 ELSE 'wine' END AS cel,
+            pc.key AS jelenlegi
+       FROM product_families pf
+       JOIN product_categories pc ON pc.id = pf.category_id
+       JOIN canonical_variants cv ON cv.product_family_id = pf.id AND cv.status <> 'merged'
+       LEFT JOIN wine_styles ws ON ws.id = cv.wine_style_id
+      WHERE pc.key IN ('uncategorized','wine')
+        AND (cv.wine_style_id IS NOT NULL OR cv.grape_signature IS NOT NULL)
+      ORDER BY pf.id, (ws.sparkling IS NOT TRUE), (ws.puttony_relevant IS NOT TRUE)`,
+  );
+  const catChanges = catRows.filter((r) => r.cel !== r.jelenlegi);
+
+  console.log(NL + KATEGORIA_FEJLEC + NL);
+  console.log(`  javithato termekcsalad:                   ${String(catChanges.length).padStart(7)}`);
+  const bontas: Record<string, number> = {};
+  for (const r of catChanges) {
+    const k = `${r.jelenlegi} -> ${r.cel}`;
+    bontas[k] = (bontas[k] ?? 0) + 1;
+  }
+  for (const [cel, db] of Object.entries(bontas)) {
+    console.log(`    ${cel.padEnd(38)} ${String(db).padStart(7)}`);
+  }
+
+  let catFixed = 0;
+  if (write && catChanges.length) {
+    for (let i = 0; i < catChanges.length; i += CHUNK) {
+      const chunk = catChanges.slice(i, i + CHUNK);
+      await transaction(async (client) => {
+        for (const r of chunk) {
+          const res = await client.query(
+            `UPDATE product_families
+                SET category_id = (SELECT id FROM product_categories WHERE key = $2)
+              WHERE id = $1`,
+            [r.family_id, r.cel],
+          );
+          catFixed += res.rowCount ?? 0;
+        }
+      });
+    }
+    console.log(NL + `  ${catFixed} termekcsalad kategoriaja helyesbitve.`);
+  } else if (catChanges.length) {
+    console.log(NL + '  Semmi nem valtozott. Az eles futashoz: -- --write');
+  }
+
+}
+
 async function main(): Promise<void> {
   configureLogger({ level: 'warn', pretty: true, service: 'backfill' });
   const url = process.env['DATABASE_URL'];
@@ -116,6 +201,9 @@ async function main(): Promise<void> {
 
   if (!rows.length) {
     console.log('\n  Nincs mit potolni.\n');
+    // A kategoria-helyesbites FUGGETLEN ettol: a csalad besorolasa akkor is
+    // rossz lehet, ha nincs honnan potolni hianyzo mezoket a listingekbol.
+    await fixFamilyCategories(write);
     await closeDb();
     return;
   }
@@ -125,6 +213,7 @@ async function main(): Promise<void> {
     for (const r of rows.slice(0, 5)) {
       console.log(`    ${(r.grape_names ?? []).join(', ') || '-'} · ${r.colour ?? '-'}`);
     }
+    await fixFamilyCategories(false);
     console.log('\n  Semmi nem valtozott. Az eles futashoz: -- --write');
     console.log('  Utana erdemes `ops:recheck -- --write`, hogy a mar nyitott');
     console.log('  esetek is ujraertekelodjenek.\n');
@@ -134,7 +223,6 @@ async function main(): Promise<void> {
 
   let variants = 0;
   let families = 0;
-  const CHUNK = 100;
 
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
@@ -182,6 +270,8 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n  ${variants} valtozat es ${families} termekcsalad kiegeszitve.`);
+
+  await fixFamilyCategories(write);
 
   console.log('\n  Kovetkezo lepes, hogy a mar nyitott esetek is ujraertekelodjenek:');
   console.log('    npm run ops:recheck -- --write\n');

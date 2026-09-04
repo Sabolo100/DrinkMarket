@@ -74,62 +74,100 @@ export interface WineLookups {
 }
 
 /**
- * MELYIK bor-kategoria?
+ * Ital-kategoriak, amik NEM borok. Ha a nev barmelyiket tartalmazza, a
+ * bor-szabaly nem szolal meg.
  *
- * Korabban minden bizonyitott bor egyetlen, atalanyos `wine` kategoriat
- * kapott. Ez a kategoria-osszehasonlitast nem egyszeruen elnemitotta, hanem
- * HAMIS EGYEZESSE forditotta: a pezsgo es a szaraz voros egyarant `wine`
- * lett, tehat a mezo `match` allapotot adott rajuk.
+ * Ez a kapu azert kell, mert a fajta ONMAGABAN bizonyitja a bort - es egy
+ * "Kadarka palinka" nevben is ott a Kadarka. A szures a nyers tokeneken
+ * megy, tehat a szotar feloldasatol fuggetlen.
+ */
+const NOT_WINE_WORDS = new Set([
+  'palinka', 'whisky', 'whiskey', 'rum', 'gin', 'vodka', 'tequila', 'mezcal',
+  'cognac', 'konyak', 'brandy', 'grappa', 'likor', 'liqueur', 'bourbon',
+  'scotch', 'unicum', 'vermut', 'vermouth', 'abszint', 'absinthe', 'sake',
+  'sor', 'beer', 'ale', 'lager', 'cider', 'almabor', 'metelt', 'mead',
+  'szorp', 'udito', 'kave', 'tea', 'pohar', 'dekanter', 'dugohuzo',
+]);
+
+/**
+ * MELYIK ital-kategoria? Es egyaltalan: bor-e?
  *
- * A valos kovetkezmenye lathato volt a feluleten: egy Sauska Brut Nature
- * pezsgo melle a rendszer Chardonnay-t, Furmintot es Syrah-t kinalt, mert az
- * egyetlen mezo, ami ezeket egy mozdulattal kizarna, egyetértett veluk.
+ * Ez a fuggveny ket kulon kerdesre valaszol egyszerre, mert a ketto
+ * osszefugg:
  *
- * A `wine_styles.sparkling` es a `puttony_relevant` pontosan ezt a
- * kulonbseget mondja ki - csak eddig senki nem kerdezte meg oket.
+ *   1. BOR-E? - a felhasznalo szabalya szerint: ha a nevben barhol van egy
+ *      feloldott szolofajta (Chardonnay, Syrah, Kadarka), az biztosan bor,
+ *      meg akkor is, ha a "bor" szo nem szerepel benne.
+ *   2. MILYEN? - ha a nevben BARHOL ott van, hogy pezsgo (gyongyozo,
+ *      sparkling, brut, prosecco, ...), akkor pezsgo - meg akkor is, ha
+ *      mellette rose vagy Chardonnay all.
  *
- * A javitas KETIRANYU, es ez fontos:
+ * A masodik pont miatt NEM eleg a nyertes stilus-slotot nezni.
+ *
+ * A parser egyertekű slotokat tolt: a "Sauska Rose Brut pezsgo" nevben a
+ * `rose` all elol, tehat AZ nyeri a stilus-slotot, a `brut` es a `pezsgo`
+ * pedig az `ambiguous` listaba kerul. Aki csak a nyertest nezi, abbol
+ * CSENDES ROSE-t csinal - holott pezsgo. Ezert vizsgaljuk az OSSZES
+ * stilustalalatot, es a pezsgo felulir minden mast.
+ *
+ * A besorolas KETIRANYU:
  *
  *   - besorolatlan sor megkapja a helyes kategoriat;
- *   - a korabban atalanyosan `wine`-ra allitott sor JAVITHATO, ha a bortipus
+ *   - a korabban atalanyosan `wine`-ra allitott sor JAVUL, ha a nev
  *     bizonyitja, hogy pezsgo vagy aszu.
  *
- * A masodik nelkul a mar eltárolt hibas besorolas orokre bennmaradna, es a
- * javitas csak az ezutan begyujtott sorokra hatna. Bovitesnel viszont
- * szigoruak vagyunk: kizarolag a `wine` irhato felul, es kizarolag pozitiv
- * bizonyitek alapjan. Barmely mas kategoriat (tomeny, kezi besorolas)
- * erintetlenul hagyunk.
+ * A masodik nelkul a mar eltarolt hibas besorolas orokre bennmaradna.
+ * Bovitesnel viszont szigoruak vagyunk: kizarolag a `wine` irhato felul, es
+ * kizarolag pozitiv bizonyitek alapjan. Barmely mas kategoriat (tomeny,
+ * champagne, kezi besorolas) erintetlenul hagyunk.
  */
 export function wineCategoryFor(
   parsed: WineParseResult,
   lookups: WineLookups,
   currentCategoryKey: string | null,
 ): string | null {
-  const styleId = parsed.style?.id ?? null;
-  const sparkling = styleId ? lookups.styleSparkling?.get(styleId) === true : false;
-  const aszu = styleId ? lookups.stylePuttony?.get(styleId) === true : false;
-
-  const key = sparkling ? 'sparkling_wine' : aszu ? 'tokaji_aszu' : 'wine';
+  const key = wineCategoryKey(parsed, lookups);
+  if (!key) return null;
   const id = lookups.categoryIdByKey?.get(key) ?? null;
+  if (!id) return null;
 
-  // Nincs besorolas: csak bizonyitott bornal adunk egyet.
-  if (currentCategoryKey === null) {
-    return provenWine(parsed) ? id : null;
-  }
-  // Van besorolas. Csak az atalanyos `wine`-t javitjuk, es csak akkor, ha a
-  // bortipus POZITIVAN mast mond.
+  if (currentCategoryKey === null) return id;
+  // Van mar besorolas: csak az atalanyos `wine` javithato, es csak ha a nev
+  // POZITIVAN mast mond.
   if (currentCategoryKey === 'wine' && key !== 'wine') return id;
+  return null;
+}
+
+/** A kategoria kulcsa a nevbol - besorolastol fuggetlenul. */
+export function wineCategoryKey(
+  parsed: WineParseResult,
+  lookups: WineLookups,
+): 'sparkling_wine' | 'tokaji_aszu' | 'wine' | null {
+  // Nem bor: a tomeny es az egyeb ital kiesik, meg ha van is fajta a nevben.
+  if (parsed.tokens.some((t) => NOT_WINE_WORDS.has(t))) return null;
+
+  // MINDEN stilustalalat: a nyertes slot ES az egyertekű slotrol leszorult
+  // tobbi is. A pezsgo barhol a nevben pezsgove teszi a tetelt.
+  const styleIds = [
+    ...parsed.matches.filter((m) => m.slot === 'style').map((m) => m.id),
+    ...parsed.ambiguous.filter((m) => m.slot === 'style').map((m) => m.id),
+  ];
+
+  if (styleIds.some((id) => lookups.styleSparkling?.get(id) === true)) return 'sparkling_wine';
+  if (styleIds.some((id) => lookups.stylePuttony?.get(id) === true)) return 'tokaji_aszu';
+
+  // Se pezsgo, se aszu. Bor-e egyaltalan? A feloldott szolofajta onmagaban
+  // bizonyitja; a bortipus (voros, feher, rose, jegbor) szinten.
+  if (parsed.grapes.length > 0 || styleIds.length > 0) return 'wine';
+
+  // Puszta boraszatnev nem eleg: egy pinceszet poharat es ajandekkartyat is
+  // arul.
   return null;
 }
 
 /** Kimondta-e mar valaki, hogy evjaratos-e a tetel? */
 function isVintageStated(status: string | null | undefined): status is string {
   return status === 'vintage' || status === 'non_vintage' || status === 'not_applicable';
-}
-
-/** Bizonyitott-e, hogy ez a sor bor? Boraszat onmagaban nem eleg. */
-function provenWine(parsed: WineParseResult): boolean {
-  return Boolean(parsed.producer) && (parsed.grapes.length > 0 || parsed.style !== null);
 }
 
 export interface ApplyResult {
