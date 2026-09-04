@@ -63,6 +63,8 @@ const FIELD_ALIASES: Record<string, string> = {
   flavour: 'flavour',
   aging: 'aging',
   subcategory: 'subcategory',
+  // Hogy a profil ki tudja kapcsolni a kategoria-kaput (`not_applicable`).
+  category: 'categoryKey',
   appellation: 'appellation',
   vineyard: 'vineyardId',
   organic: 'organic',

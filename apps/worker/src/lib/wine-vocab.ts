@@ -137,23 +137,30 @@ export function resetWineVocabularyCache(): void {
 export interface WineColourLookups {
   styleColour: Map<string, string | null>;
   grapeColour: Map<string, string | null>;
-  wineCategoryId: string | null;
+  styleSparkling: Map<string, boolean>;
+  stylePuttony: Map<string, boolean>;
+  categoryIdByKey: Map<string, string>;
 }
 let colourCache: { at: number; value: WineColourLookups } | null = null;
 
 export async function loadWineColoursCached(): Promise<WineColourLookups> {
   if (colourCache && Date.now() - colourCache.at < VOCAB_TTL_MS) return colourCache.value;
-  const [styles, grapes, wineCat] = await Promise.all([
-    query<{ id: string; colour: string | null }>(
-      `SELECT id::text, colour FROM wine_styles WHERE status = 'active'`),
+  const [styles, grapes, cats] = await Promise.all([
+    query<{ id: string; colour: string | null; sparkling: boolean; puttony_relevant: boolean }>(
+      `SELECT id::text, colour, sparkling, puttony_relevant
+         FROM wine_styles WHERE status = 'active'`),
     query<{ id: string; colour_default: string | null }>(
       `SELECT id::text, colour_default FROM grape_varieties WHERE status = 'active'`),
-    query<{ id: string }>(`SELECT id::text FROM product_categories WHERE key = 'wine'`),
+    query<{ id: string; key: string }>(
+      `SELECT id::text, key FROM product_categories
+        WHERE key IN ('wine','sparkling_wine','champagne','tokaji_aszu')`),
   ]);
   const value: WineColourLookups = {
     styleColour: new Map(styles.map((s) => [s.id, s.colour])),
     grapeColour: new Map(grapes.map((g) => [g.id, g.colour_default])),
-    wineCategoryId: wineCat[0]?.id ?? null,
+    styleSparkling: new Map(styles.map((s) => [s.id, s.sparkling])),
+    stylePuttony: new Map(styles.map((s) => [s.id, s.puttony_relevant])),
+    categoryIdByKey: new Map(cats.map((c) => [c.key, c.id])),
   };
   colourCache = { at: Date.now(), value };
   return value;

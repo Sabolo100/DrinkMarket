@@ -30,7 +30,11 @@ const lookups: WineLookups = {
   grapeColour: new Map([
     [GRAPE_KEK, 'red'], [GRAPE_OLASZ, 'white'], ['grape-nocolour', null],
   ]),
-  wineCategoryId: WINE_CATEGORY,
+  styleSparkling: new Map([[STYLE_RED, false], [STYLE_ROSE, false]]),
+  stylePuttony: new Map([[STYLE_RED, false], [STYLE_ROSE, false]]),
+  categoryIdByKey: new Map([
+    ['wine', WINE_CATEGORY], ['sparkling_wine', 'cat-sparkling'], ['tokaji_aszu', 'cat-aszu'],
+  ]),
 };
 
 /** A tenyleges SQL-t nem futtatjuk; azt figyeljuk, MIT akart irni. */
@@ -72,7 +76,8 @@ function parse(over: Partial<WineParseResult> = {}): WineParseResult {
 
 function row(over: Partial<WineListingRow> = {}): WineListingRow {
   return {
-    id: 'listing-1', raw_name: 'Sauska Kékfrankos 2019', category_id: null,
+    id: 'listing-1', raw_name: 'Sauska Kékfrankos 2019',
+    category_id: null, category_key: null,
     platform_product_id: 'p1', platform_variant_id: null,
     producer_id: null, producer_name: null, brand_id: null, brand_name: null,
     expression: null, vintage_value: null, vintage_status: 'unknown',
@@ -396,7 +401,7 @@ describe('a besorolas', () => {
   it('a meglevo besorolast nem irja felul', async () => {
     const f = fakeClient();
     const result = await applyWineIdentity(
-      f.client, row({ category_id: 'cat-sparkling' }),
+      f.client, row({ category_id: 'cat-sparkling', category_key: 'sparkling_wine' }),
       parse({
         producer: match('producer', 'p', 'Sauska'),
         grapes: [match('grape', GRAPE_KEK, 'Kékfrankos')],

@@ -493,18 +493,28 @@ export async function persistDecision(
       //
       // Kifejezett keres-majd-ir, mert az egyedi index reszleges es
       // kifejezes-alapu; az `ON CONFLICT` inferencia ott nehezen olvashato.
+      // A keresés SZANDEKOSAN nem szur `case_type`-ra. A `new_match` es az
+      // `ambiguous` nem ket kulonbozo UGY, hanem ugyanannak a parnak a ket
+      // lehetseges kimenetele - egy ujrafuttatas atbillentheti egyikbol a
+      // masikba. Ha a keresés a tipusra szurne, az atbillenes MASODIK nyitott
+      // esetet nyitna ugyanarra a parra: a feluleten ket azonos kartya
+      // jelent meg ugyanabbol a boltbol, ugyanazzal az arral.
       const existing = await client.query<{ id: string }>(
         `SELECT id FROM review_cases
-          WHERE case_type = $1 AND canonical_variant_id = $2 AND shop_id = $3
+          WHERE case_type IN ('new_match','ambiguous')
+            AND canonical_variant_id = $1 AND shop_id = $2
             AND status IN ('open','in_progress','deferred')
           LIMIT 1`,
-        [caseType, variant.id, shopId],
+        [variant.id, shopId],
       );
 
       if (existing.rows[0]) {
         reviewCaseId = existing.rows[0].id;
+        // A tipus is frissul: ha a par kozben dontetlenne valt, azt a
+        // meglevo eset viseli tovabb - nem egy masodik sor.
         await client.query(
           `UPDATE review_cases SET
+             case_type = $10,
              source_listing_id = $2, match_decision_id = $3, title = $4,
              reason_codes = $5, confidence = $6, candidates = $7::jsonb,
              context = $8::jsonb, priority = $9, row_version = row_version + 1
@@ -512,7 +522,7 @@ export async function persistDecision(
           [
             reviewCaseId, decision.sourceListingId, decisionId, title.slice(0, 300),
             decision.reasonCodes, decision.decisionStrength,
-            JSON.stringify(decision.runnerUp), context, priority,
+            JSON.stringify(decision.runnerUp), context, priority, caseType,
           ],
         );
       } else {

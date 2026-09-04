@@ -327,3 +327,45 @@ describe('az indoklas igazat mond', () => {
     expect(d.explanationHu).toContain('4x');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A kategoria mint kizaro jel
+//
+// A valos rendszerben minden bizonyitott bor egyetlen, atalanyos `wine`
+// kategoriat kapott. Ez a mezot nem elnemitotta, hanem HAMIS EGYEZESSE
+// forditotta: a pezsgo es a szaraz voros egyarant `wine` lett, tehat a
+// kategoria `match` allapotot adott rajuk.
+//
+// A felhasznalo ezt latta: egy Sauska Brut Nature pezsgo melle a rendszer
+// Chardonnay-t, Furmintot es Syrah-t kinalt jeloltkent.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('pezsgo es csendes bor nem ugyanaz', () => {
+  it('sparkling_wine vs wine -> elutasitas, nem ellenorzesi sor', () => {
+    // Az evjarat SZANDEKOSAN egyezik mindket oldalon: igy bizonyithato,
+    // hogy a kizarast a KATEGORIA hozta, nem valami mas.
+    const d = decide(
+      canonical({ categoryKey: 'sparkling_wine' }),
+      [candidate({ categoryKey: 'wine' })],
+    );
+    expect(d.status).toBe('rejected');
+    expect(d.reasonCodes.join(' ')).toContain('CATEGORY');
+  });
+
+  it('a rokon kategoriak (pezsgo/champagne) NEM zarnak ki', () => {
+    // A pezsgo es a champagne kozott a besorolas finomsaga a kulonbseg,
+    // nem a termek. Itt a tartozkodas a helyes valasz.
+    const d = decide(
+      canonical({ categoryKey: 'sparkling_wine' }),
+      [candidate({ categoryKey: 'champagne' })],
+    );
+    expect(d.status).not.toBe('rejected');
+  });
+
+  it('besorolatlan oldal nem zar ki - a nem tudjuk nem gyanu', () => {
+    const d = decide(
+      canonical({ categoryKey: 'sparkling_wine' }),
+      [candidate({ categoryKey: null })],
+    );
+    expect(d.status).not.toBe('rejected');
+  });
+});

@@ -15,7 +15,7 @@ import { identityHash, parseWineName } from '@radovin/domain';
 import { logger } from '@radovin/observability';
 import type { IdentityFields, ComparisonPolicy } from '@radovin/contracts';
 import { loadWineColoursCached, loadWineVocabularyCached, shopSegment } from './wine-vocab.js';
-import { wineSlotPatch } from './wine-apply.js';
+import { wineCategoryFor, wineSlotPatch } from './wine-apply.js';
 
 /** A borszotar csak ezekre a boltokra ertelmezheto. */
 const WINE_SEGMENTS = new Set(['wine', 'mixed']);
@@ -205,10 +205,16 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
         listing.identity.packCount = patch.packCount;
         wineGrapeIds.push(...patch.grapeIds);
         wineParsed = true;
-        if (!effectiveCategoryId && parsed.producer
-            && (parsed.grapes.length > 0 || parsed.style)) {
-          effectiveCategoryId = colours.wineCategoryId;
-        }
+        // A besorolas UGYANAZZAL a szabállyal dol el, mint az
+        // ujrakinyeresnel - kulonben a ket ut mast allitana ugyanarrol a
+        // nevrol, es minden begyujtes elsodrodasnak latna a masik munkajat.
+        const currentKey = effectiveCategoryId
+          ? (await client.query<{ key: string }>(
+              'SELECT key FROM product_categories WHERE id = $1', [effectiveCategoryId],
+            )).rows[0]?.key ?? null
+          : null;
+        const wineCat = wineCategoryFor(parsed, colours, currentKey);
+        if (wineCat) effectiveCategoryId = wineCat;
 
         // Az azonossag valtozott, tehat a lenyomat is ujraszamolando.
         listing.identityHash = identityHash({

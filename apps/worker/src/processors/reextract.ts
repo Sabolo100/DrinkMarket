@@ -56,7 +56,7 @@ export interface ReextractPayload {
 }
 
 const LISTING_SELECT = `
-  SELECT sl.id::text, sl.raw_name, sl.category_id::text,
+  SELECT sl.id::text, sl.raw_name, sl.category_id::text, pc.key AS category_key,
          sl.platform_product_id, sl.platform_variant_id,
          sl.producer_id::text, pr.canonical_name AS producer_name,
          sl.brand_id::text, br.canonical_name AS brand_name,
@@ -67,6 +67,7 @@ const LISTING_SELECT = `
          sl.grape_signature, g.ids AS grape_ids
     FROM source_listings sl
     JOIN shops s ON s.id = sl.shop_id
+    LEFT JOIN product_categories pc ON pc.id = sl.category_id
     LEFT JOIN producers pr ON pr.id = sl.producer_id
     LEFT JOIN brands br ON br.id = sl.brand_id
     LEFT JOIN LATERAL (
@@ -112,17 +113,22 @@ export async function processReextract(
     }
 
     // Szinlevezetes: a bortipus mondja ki, hianyaban az egyertelmu fajtaszin.
-    const [styles, grapes, wineCat] = await Promise.all([
-      query<{ id: string; colour: string | null }>(
-        `SELECT id::text, colour FROM wine_styles WHERE status = 'active'`),
+    const [styles, grapes, cats] = await Promise.all([
+      query<{ id: string; colour: string | null; sparkling: boolean; puttony_relevant: boolean }>(
+        `SELECT id::text, colour, sparkling, puttony_relevant
+           FROM wine_styles WHERE status = 'active'`),
       query<{ id: string; colour_default: string | null }>(
         `SELECT id::text, colour_default FROM grape_varieties WHERE status = 'active'`),
-      query<{ id: string }>(`SELECT id::text FROM product_categories WHERE key = 'wine'`),
+      query<{ id: string; key: string }>(
+        `SELECT id::text, key FROM product_categories
+          WHERE key IN ('wine','sparkling_wine','champagne','tokaji_aszu')`),
     ]);
     const lookups: WineLookups = {
       styleColour: new Map(styles.map((s) => [s.id, s.colour])),
       grapeColour: new Map(grapes.map((g) => [g.id, g.colour_default])),
-      wineCategoryId: wineCat[0]?.id ?? null,
+      styleSparkling: new Map(styles.map((s) => [s.id, s.sparkling])),
+      stylePuttony: new Map(styles.map((s) => [s.id, s.puttony_relevant])),
+      categoryIdByKey: new Map(cats.map((c) => [c.key, c.id])),
     };
 
     // Az eloszures: azok a sorok, amikben egy szoba joheto boraszat neve

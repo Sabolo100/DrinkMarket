@@ -192,10 +192,26 @@ export function compareIdentityFields(
     const cmp = compareSingleField(fieldName, lv, rv, left, right, ctx);
 
     const weight = weights[spec.weightKey] ?? 0.05;
+    // A KATEGORIA kulon eset, akarcsak az evjarat. Egyetlen kategoria-profil
+    // sem sorolja fel a `category`-t, ezert a szerepe `supporting`-ra esett
+    // vissza - vagyis egy pezsgo/csendes bor ellentmondas csak a pontszamot
+    // huzta lejjebb, kizarni nem tudott. Az ember pedig azt latta, hogy a
+    // rendszer egy Sauska Brut Nature pezsgo melle Chardonnay-t kinal.
+    //
+    // Ez a mezo szerkezetileg mas, mint a tobbi: az osszehasonlito MAR
+    // elvegzi a finom megkulonbozteteseket - a rokon besorolasok
+    // (pezsgo/champagne, bor/aszu) `unknown`-t adnak, a besorolatlan oldal
+    // szinten. Ha idaig eljut egy `contradiction`, az azt jelenti, hogy KET
+    // POZITIVAN ISMERT, egymassal ossze nem fuggo kategoriat lattunk -
+    // whisky es rum, pezsgo es csendes bor. Ott a tartozkodas nem ovatossag,
+    // hanem hiba.
+    //
+    // A kilepo ut megmarad: aki nem akarja, a profilban `not_applicable`-re
+    // teheti, es akkor a mezo fentebb kiesik a ciklusbol.
     const isHard =
       cmp.state === 'contradiction' &&
       spec.hardOnMismatch &&
-      (role === 'required' || role === 'contradiction_only');
+      (role === 'required' || role === 'contradiction_only' || fieldName === 'categoryKey');
 
     fields.push({
       field: fieldName, role, state: cmp.state, isHard,

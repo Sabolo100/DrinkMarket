@@ -21,6 +21,8 @@ export interface WineListingRow {
   id: string;
   raw_name: string;
   category_id: string | null;
+  /** A jelenlegi besorolas KULCSA. A javitas ehhez merve dol el. */
+  category_key: string | null;
   platform_product_id: string | null;
   platform_variant_id: string | null;
   producer_id: string | null;
@@ -53,8 +55,12 @@ export interface WineLookups {
   styleColour: ReadonlyMap<string, string | null>;
   /** grape_varieties.id -> colour_default */
   grapeColour: ReadonlyMap<string, string | null>;
+  /** wine_styles.id -> pezsgo-e a bortipus */
+  styleSparkling?: ReadonlyMap<string, boolean>;
+  /** wine_styles.id -> puttonyszam-relevans-e (aszu) */
+  stylePuttony?: ReadonlyMap<string, boolean>;
   /**
-   * A `wine` kategoria azonositoja. Ha egy besorolatlan listing neve a
+   * `product_categories.key` -> id. Ha egy besorolatlan listing neve a
    * BORSZOTARBOL oldodott fel - van boraszata ES fajtaja vagy bortipusa -,
    * akkor bizonyitottan bor, es megkaphatja a kategoriat.
    *
@@ -64,7 +70,56 @@ export interface WineLookups {
    * hianyozhat a bolti nevbol. Kategoria nelkul ezert minden borpar
    * "kotelezo tetel nem bizonyitott" indokkal allna meg.
    */
-  wineCategoryId?: string | null;
+  categoryIdByKey?: ReadonlyMap<string, string>;
+}
+
+/**
+ * MELYIK bor-kategoria?
+ *
+ * Korabban minden bizonyitott bor egyetlen, atalanyos `wine` kategoriat
+ * kapott. Ez a kategoria-osszehasonlitast nem egyszeruen elnemitotta, hanem
+ * HAMIS EGYEZESSE forditotta: a pezsgo es a szaraz voros egyarant `wine`
+ * lett, tehat a mezo `match` allapotot adott rajuk.
+ *
+ * A valos kovetkezmenye lathato volt a feluleten: egy Sauska Brut Nature
+ * pezsgo melle a rendszer Chardonnay-t, Furmintot es Syrah-t kinalt, mert az
+ * egyetlen mezo, ami ezeket egy mozdulattal kizarna, egyetértett veluk.
+ *
+ * A `wine_styles.sparkling` es a `puttony_relevant` pontosan ezt a
+ * kulonbseget mondja ki - csak eddig senki nem kerdezte meg oket.
+ *
+ * A javitas KETIRANYU, es ez fontos:
+ *
+ *   - besorolatlan sor megkapja a helyes kategoriat;
+ *   - a korabban atalanyosan `wine`-ra allitott sor JAVITHATO, ha a bortipus
+ *     bizonyitja, hogy pezsgo vagy aszu.
+ *
+ * A masodik nelkul a mar eltárolt hibas besorolas orokre bennmaradna, es a
+ * javitas csak az ezutan begyujtott sorokra hatna. Bovitesnel viszont
+ * szigoruak vagyunk: kizarolag a `wine` irhato felul, es kizarolag pozitiv
+ * bizonyitek alapjan. Barmely mas kategoriat (tomeny, kezi besorolas)
+ * erintetlenul hagyunk.
+ */
+export function wineCategoryFor(
+  parsed: WineParseResult,
+  lookups: WineLookups,
+  currentCategoryKey: string | null,
+): string | null {
+  const styleId = parsed.style?.id ?? null;
+  const sparkling = styleId ? lookups.styleSparkling?.get(styleId) === true : false;
+  const aszu = styleId ? lookups.stylePuttony?.get(styleId) === true : false;
+
+  const key = sparkling ? 'sparkling_wine' : aszu ? 'tokaji_aszu' : 'wine';
+  const id = lookups.categoryIdByKey?.get(key) ?? null;
+
+  // Nincs besorolas: csak bizonyitott bornal adunk egyet.
+  if (currentCategoryKey === null) {
+    return provenWine(parsed) ? id : null;
+  }
+  // Van besorolas. Csak az atalanyos `wine`-t javitjuk, es csak akkor, ha a
+  // bortipus POZITIVAN mast mond.
+  if (currentCategoryKey === 'wine' && key !== 'wine') return id;
+  return null;
 }
 
 /** Kimondta-e mar valaki, hogy evjaratos-e a tetel? */
@@ -240,8 +295,10 @@ export async function applyWineIdentity(
   if (volumeMl !== row.volume_ml) fields.push('volume_ml');
   if (packCount !== (row.pack_count ?? 1)) fields.push('pack_count');
 
-  const categoryId = row.category_id
-    ?? (provenWine(parsed) ? (lookups.wineCategoryId ?? null) : null);
+  // A kategoria javitasa. Lehet uj besorolas (eddig nem volt), es lehet a
+  // korabbi atalanyos `wine` HELYESBITESE pezsgore vagy aszura.
+  const newCategoryId = wineCategoryFor(parsed, lookups, row.category_key);
+  const categoryId = newCategoryId ?? row.category_id ?? null;
   if (categoryId !== (row.category_id ?? null)) fields.push('category_id');
 
   if (!fields.length) {
@@ -316,7 +373,11 @@ export async function applyWineIdentity(
        pack_count      = $15,
        colour          = coalesce($10, colour),
        identity_hash   = $11,
-       category_id     = coalesce(category_id, $12::uuid),
+       -- Nem coalesce: a helyesbitesnek felul KELL irnia a korabbi
+       -- atalanyos wine besorolast, kulonben a mar eltarolt hiba orokre
+       -- bennmaradna. A wineCategoryFor gondoskodik rola, hogy ez csak
+       -- pozitiv bizonyitek mellett tortenjen.
+       category_id     = $12::uuid,
        -- Az azonossag megvaltozott, tehat a korabbi "megneztuk, nem talaltunk"
        -- dontes ervenyet vesztette. A mar OSSZEPAROSITOTT sorhoz nem nyulunk:
        -- azt ember hagyta jova, es a felulvizsgalat kulon dontes.
