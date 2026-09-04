@@ -24,7 +24,9 @@ import { logger, newCorrelationId, withContext } from '@radovin/observability';
 import { parseWineName } from '@radovin/domain';
 import type { WorkerConfig } from '../config.js';
 import { loadWineVocabulary } from '../lib/wine-vocab.js';
-import { applyWineIdentity, type WineListingRow, type WineLookups } from '../lib/wine-apply.js';
+import {
+  applyWineIdentity, wineCategoryFor, type WineListingRow, type WineLookups,
+} from '../lib/wine-apply.js';
 import { enqueueFromWorker } from '../lib/queue-client.js';
 
 /** Csak a bor-boltok: a tomeny listingjein a borszotar nem ertelmezheto. */
@@ -135,13 +137,28 @@ export async function processReextract(
     // egyaltalan elofordul. A `p.name_norm` generalt oszlop, es a
     // `source_listings.normalized_name` is - a LIKE mindkettovel normalizalt
     // alakon dolgozik, tehat az ekezet es a kisbetu mar nem szamit.
+    // TELJES modban NINCS boraszat-kapu.
+    //
+    // Az eloszures ertelme az, hogy a celzott es a varolistas futas olcso
+    // legyen: ott tudjuk, MELYIK boraszatokra futunk, es felesleges a tobbi
+    // sort beolvasni. A "teljes" viszont eppen azt igeri, hogy mindent
+    // ujraertekel - ott a kapu nem gyorsitas volt, hanem korlatozas: a
+    // katalogus 94%-a el sem jutott a parserig, mert a neveben nem
+    // szerepelt egyetlen jovahagyott pinceszet neve sem.
+    //
+    // A meresben ez 18 763 termekbol 1086-ot jelentett. A tobbirol a futas
+    // nem azt mondta, hogy "nem bor" - el sem olvasta oket.
+    //
+    // A parser dontese valtozatlan; csak eljut hozza a sor.
     const params: unknown[] = [WINE_SHOP_SEGMENTS];
-    let producerFilter: string;
+    let producerGate = '';
     if (scoped) {
       params.push(scoped);
-      producerFilter = `p.id = ANY($${params.length}::uuid[]) AND p.status = 'active'`;
-    } else {
-      producerFilter = `p.status = 'active'`;
+      producerGate = `AND EXISTS (
+            SELECT 1 FROM producers p
+             WHERE p.id = ANY($${params.length}::uuid[]) AND p.status = 'active'
+               AND sl.normalized_name LIKE '%' || p.name_norm || '%'
+          )`;
     }
     let shopFilter = '';
     if (job.data.shopKey) {
@@ -155,11 +172,7 @@ export async function processReextract(
         WHERE sl.listing_status = 'active'
           AND s.segment = ANY($1::text[])
           ${shopFilter}
-          AND EXISTS (
-            SELECT 1 FROM producers p
-             WHERE ${producerFilter}
-               AND sl.normalized_name LIKE '%' || p.name_norm || '%'
-          )
+          ${producerGate}
         ORDER BY sl.id
         LIMIT $${params.length}`,
       params,
@@ -181,19 +194,49 @@ export async function processReextract(
         for (const row of chunk) {
           const parsed = parseWineName(row.raw_name, vocab, { producerId: row.producer_id });
 
-          // Boraszat nelkul nincs mit alkalmazni: a bor kategoriaban a
-          // termelo KOTELEZO mezo, tehat producer nelkul a sor ugysem tudna
-          // parosodni - a fajta beirasa viszont felesleges irasi terheles.
-          if (!parsed.producer) { noProducer++; continue; }
-          // Celzott modban CSAK a most jovahagyottakat ismerjuk el. Az
-          // eloszures ennel bovebb: egy masik, korabban jovahagyott boraszat
-          // neve is elofordulhat ugyanabban a nevben.
-          if (scopedSet && !scopedSet.has(parsed.producer.id)) { noProducer++; continue; }
+          // Van-e barmi, amit a nev BIZONYIT? A feloldott szolofajta es a
+          // bortipus onmagaban is az - boraszat nelkul is.
+          const wineEvidence = parsed.grapes.length > 0 || parsed.style !== null;
 
-          hits.set(parsed.producer.id, (hits.get(parsed.producer.id) ?? 0) + 1);
+          if (scopedSet) {
+            // CELZOTT mod: csak a most jovahagyott boraszatok sorai
+            // szamitanak. Az eloszures ennel bovebb - egy masik, korabban
+            // jovahagyott boraszat neve is elofordulhat ugyanabban a nevben.
+            if (!parsed.producer || !scopedSet.has(parsed.producer.id)) {
+              noProducer++; continue;
+            }
+          } else if (!parsed.producer && !wineEvidence) {
+            // TELJES mod: se boraszat, se fajta, se bortipus - nincs mit
+            // beirni. Egy puszta nev nem bizonyit semmit.
+            noProducer++; continue;
+          }
+
+          // Korabban itt egy `if (!parsed.producer) continue;` allt, azzal az
+          // indokkal, hogy termelo nelkul a sor ugysem tud parosodni. Ez igaz
+          // - de nem a teljes kep.
+          //
+          // A besorolas es a fajta akkor is ER valamit, ha a termelo hianyzik:
+          // ezek KIZARO jelek. Egy "Nyerspezsgo Extra Dry" sor besorolas
+          // nelkul tartozkodast valt ki, `sparkling_wine`-kent viszont
+          // kizarja magat minden csendes bor mellol. Pontosan ez volt a baj,
+          // amit a feluleten lattunk: pezsgo melle Chardonnay.
+          //
+          // Amit ez NEM ad: parositast. A termelo tovabbra is kotelezo
+          // azonossagmezo, es tovabbra is csak jovahagyott boraszatbol jon.
+          // A nyereseg kevesebb ROSSZ javaslat, nem tobb jo par.
+          if (parsed.producer) {
+            hits.set(parsed.producer.id, (hits.get(parsed.producer.id) ?? 0) + 1);
+          }
 
           if (dryRun) {
-            if (parsed.producer.id !== row.producer_id) changed++; else unchanged++;
+            // A becsles a termelot ES a besorolast is nezi. Csak a termelot
+            // nezni felrevezeto lenne: a sorok tulnyomo tobbsege eppen a
+            // kategoriat kapja meg, nem a termelot.
+            const producerChanges =
+              (parsed.producer?.id ?? null) !== (row.producer_id ?? null);
+            const categoryChanges =
+              wineCategoryFor(parsed, lookups, row.category_key) !== null;
+            if (producerChanges || categoryChanges) changed++; else unchanged++;
             continue;
           }
 
@@ -262,12 +305,18 @@ export async function processReextract(
       valtozatlan: unchanged,
       boraszat_nelkul: noProducer,
       klaszterezesre_kuldve: queued,
+      elvagva: rows.length >= limit,
       mezok: Object.fromEntries(fieldCounts),
       dryRun,
     });
 
     return {
       scanned: rows.length,
+      // Elertuk-e a felso hatart? Boraszat-kapu nelkul a teljes mod a
+      // KATALOGUS meretehez igazodik, nem a jovahagyott nevekhez - egy
+      // csendben elvagott futas pedig pont ugy nezne ki, mintha vegzett
+      // volna. Ha ez igaz, meg egyszer le kell futtatni.
+      truncated: rows.length >= limit,
       changed,
       unchanged,
       withoutProducer: noProducer,

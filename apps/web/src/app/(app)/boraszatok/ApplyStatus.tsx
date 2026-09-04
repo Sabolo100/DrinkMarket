@@ -26,6 +26,7 @@ interface Run {
     scanned?: number; changed?: number; unchanged?: number;
     withoutProducer?: number; queuedForClustering?: number;
     producersApplied?: number; skipped?: boolean; reason?: string;
+    truncated?: boolean;
   } | null;
 }
 
@@ -164,7 +165,14 @@ export function ApplyStatus({ onFinished }: { onFinished?: () => void }) {
         <span>változatlan <strong className="num">{num(res.unchanged)}</strong></span>
         <span>párosításra küldve <strong className="num">{num(res.queuedForClustering)}</strong></span>
       </div>
-      {res.changed === 0 && (
+      {res.truncated && (
+        <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--rust)' }}>
+          A futás elérte a felső határt, tehát <strong>nem ment végig</strong> az egész
+          katalóguson. Indítsd el még egyszer — a már feldolgozott sorok másodszorra
+          változatlanok lesznek, tehát nem kerül semmibe.
+        </p>
+      )}
+      {res.changed === 0 && !res.truncated && (
         <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
           Semmi nem változott. Ez akkor helyes, ha a katalógus már naprakész — ha viszont
           most bővült a szótár, érdemes megnézni, hogy a borászatok jóvá vannak-e hagyva.
