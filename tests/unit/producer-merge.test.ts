@@ -14,7 +14,9 @@
  * (spec 13.3), es egy magabiztos javaslat itt valodi kart okozna.
  */
 import { describe, it, expect } from 'vitest';
-import { producerMergeKey, groupMergeCandidates, type MergeMember } from '@radovin/domain';
+import {
+  producerMergeKey, groupMergeCandidates, classifyExtra, type MergeMember,
+} from '@radovin/domain';
 
 function m(
   id: string, canonicalName: string, extra: Partial<MergeMember> = {},
@@ -165,5 +167,115 @@ describe('rangsor', () => {
       m('4', 'Nagy Borbirtok', { linkedListings: 60 }),
     ]);
     expect(groups[0]!.key).toBe('nagy');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A TOBBLET besorolasa
+//
+// A merge-csoportokban harom, gyokeresen kulonbozo eset keveredett, es a
+// felulet mindet egyformannak kezelte. A felhasznalo emiatt olvasztotta be a
+// "Sauska Brut"-ot a Sauskaba - aminek nulla termeke volt, tehat a muvelet
+// csak egy MERGEZO aliaszt gyartott: a szotar leghosszabb egyezes szerint
+// rendez, tehat a `brut` szot termelonevkent nyelte volna el, es a
+// pezsgo-felismeres soha nem latta volna.
+//
+//   Takler ↔ Takler BORBIRTOK      a tobblet a pinceszet neve      -> beolvad
+//   Sauska ↔ Sauska BRUT           a tobblet a BORE                -> elvet
+//   Takler ↔ Takler SZENTA HEGYI   dulo vagy tetelnev              -> elvet
+// ═══════════════════════════════════════════════════════════════════════════
+describe('a tobblet besorolasa', () => {
+  it('a jelolo a boraszat nevehez tartozik', () => {
+    expect(classifyExtra(['borbirtok'])).toBe('marker');
+    expect(classifyExtra(['pinceszet'])).toBe('marker');
+    expect(classifyExtra(['birtok'])).toBe('marker');
+    expect(classifyExtra(['kft'])).toBe('marker');
+  });
+
+  it('a bor-szokincs a BORHOZ tartozik', () => {
+    expect(classifyExtra(['brut'])).toBe('wine_term');
+    expect(classifyExtra(['extra', 'dry'])).toBe('wine_term');
+    expect(classifyExtra(['puttonyos'])).toBe('wine_term');
+  });
+
+  it('a dulo es a tetelnev egyik sem', () => {
+    expect(classifyExtra(['szenta', 'hegyi'])).toBe('other');
+    expect(classifyExtra(['primarius'])).toBe('other');
+    expect(classifyExtra(['orokseg'])).toBe('other');
+  });
+
+  it('nincs tobblet -> none', () => {
+    expect(classifyExtra([])).toBe('none');
+  });
+
+  it('vegyes tobblet nem szamit jelolonek', () => {
+    // "Takler Borbirtok Primarius": a `primarius` miatt NEM tiszta jelolo.
+    expect(classifyExtra(['borbirtok', 'primarius'])).toBe('other');
+  });
+});
+
+describe('a javasolt muvelet', () => {
+  function group(members: MergeMember[]) {
+    return groupMergeCandidates(members)[0]!;
+  }
+  const find = (g: ReturnType<typeof group>, name: string) =>
+    g.members.find((x) => x.canonicalName === name)!;
+
+  it('jelolos nev -> beolvad, es az aliasz hasznos', () => {
+    const g = group([
+      m('1', 'Takler', { status: 'active', linkedListings: 78 }),
+      m('2', 'Takler Borbirtok', { status: 'active', linkedListings: 3 }),
+    ]);
+    const t = find(g, 'Takler Borbirtok');
+    expect(t.suggestedAction).toBe('merge');
+    expect(t.aliasUseful).toBe(true);
+    expect(t.extraKind).toBe('marker');
+  });
+
+  it('bor-szokincs termek nelkul -> ELVET, nem beolvasztas', () => {
+    // Ez a Sauska esete. Beolvasztva nulla termek mozdulna, es csak egy
+    // mergezo aliasz keletkezne.
+    const g = group([
+      m('1', 'Sauska', { status: 'active', linkedListings: 231 }),
+      m('2', 'Sauska Brut', { linkedListings: 0 }),
+    ]);
+    const t = find(g, 'Sauska Brut');
+    expect(t.suggestedAction).toBe('discard');
+    expect(t.aliasUseful).toBe(false);
+  });
+
+  it('bor-szokincs TERMEKKEL -> beolvad, de aliasz NELKUL', () => {
+    // Kenyszerhelyzet: a termekeknek helye kell. Az aliasz viszont karos.
+    const g = group([
+      m('1', 'Kreinbacher', { status: 'active', linkedListings: 83 }),
+      m('2', 'Kreinbacher Brut', { status: 'active', linkedListings: 17 }),
+    ]);
+    const t = find(g, 'Kreinbacher Brut');
+    expect(t.suggestedAction).toBe('merge');
+    expect(t.aliasUseful).toBe(false);
+  });
+
+  it('tetelnev termek nelkul -> ELVET', () => {
+    const g = group([
+      m('1', 'Takler', { status: 'active', linkedListings: 78 }),
+      m('2', 'Takler Primarius', { linkedListings: 0 }),
+    ]);
+    expect(find(g, 'Takler Primarius').suggestedAction).toBe('discard');
+  });
+
+  it('szemelynev -> KULON marad, sosem beolvasztas', () => {
+    const g = group([
+      m('1', 'Gere Attila', { personName: true, linkedListings: 22 }),
+      m('2', 'Gere Zsolt', { personName: true, linkedListings: 17 }),
+    ]);
+    expect(find(g, 'Gere Zsolt').suggestedAction).toBe('separate');
+  });
+
+  it('a tulelo mindig `keep`', () => {
+    const g = group([
+      m('1', 'Sauska', { status: 'active', linkedListings: 231 }),
+      m('2', 'Sauska Brut'),
+    ]);
+    expect(find(g, 'Sauska').suggestedAction).toBe('keep');
   });
 });

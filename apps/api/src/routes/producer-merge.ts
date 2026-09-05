@@ -21,7 +21,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { query, queryOne, transaction } from '@radovin/db';
 import { AppError } from '@radovin/observability';
-import { groupMergeCandidates, type MergeMember } from '@radovin/domain';
+import {
+  classifyExtra, extraTokensOf, groupMergeCandidates, producerMergeKey,
+  type MergeMember,
+} from '@radovin/domain';
 import type { AppConfig } from '../config.js';
 import { requireAtLeast } from '../lib/auth.js';
 import { audit } from '../lib/context.js';
@@ -109,14 +112,25 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
     const actor = requireAtLeast(req.user, 'catalog_manager');
     const body = z.object({
       keepId: z.string().uuid(),
-      mergeIds: z.array(z.string().uuid()).min(1).max(50),
+      mergeIds: z.array(z.string().uuid()).max(50).optional(),
+      /**
+       * ELDOBANDO sorok. Nem olvadnak be: `retired` allapotba kerulnek.
+       *
+       * Ez a harmadik muvelet, ami eddig hianyzott. A "Sauska Brut" nem a
+       * Sauska masik neve - a `brut` a BORHOZ tartozik. Beolvasztva aliasz
+       * lenne belole, ami elnyeli a szot; kihagyva viszont visszakerulne a
+       * jeloltek koze. Eldobva a szo oda kerul, ahova valo: a bor nevebe.
+       */
+      discardIds: z.array(z.string().uuid()).max(50).optional(),
       /** A tulelo neve atirhato ugyanebben a lepesben. */
       canonicalName: z.string().min(2).max(200).optional(),
     }).parse(req.body ?? {});
 
-    const mergeIds = [...new Set(body.mergeIds)].filter((id) => id !== body.keepId);
-    if (!mergeIds.length) {
-      throw new AppError('EMPTY_MERGE', 'Nincs mit osszevonni: a lista csak a tulelot tartalmazza.', 400);
+    const mergeIds = [...new Set(body.mergeIds ?? [])].filter((id) => id !== body.keepId);
+    const discardIds = [...new Set(body.discardIds ?? [])]
+      .filter((id) => id !== body.keepId && !mergeIds.includes(id));
+    if (!mergeIds.length && !discardIds.length) {
+      throw new AppError('EMPTY_MERGE', 'Nincs mit osszevonni vagy eldobni.', 400);
     }
 
     const keep = await queryOne<{ id: string; canonical_name: string; status: string }>(
@@ -185,7 +199,20 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
       //
       // `approved = true`: az osszevonas MAGA az emberi dontes, kulon
       // jovahagyast nem kerunk ra megegyszer.
+      // FONTOS: nem minden nevbol lesz aliasz.
+      //
+      // A "Takler Borbirtok" aliasza hasznos - az a pinceszet hivatalos neve.
+      // A "Sauska Brut"-e viszont MERGEZO: a szotar leghosszabb egyezes
+      // szerint rendez, tehat a `brut` szot termelonevkent nyelne el, es a
+      // pezsgo-felismeres soha nem latna. Ugyanigy veszne el a tetelnev,
+      // ami megkulonbozteti a "Brut Nature"-t a "Brut Classic"-tol.
+      //
+      // A dontes a TOBBLET-TOKENEK szokincsen mulik, nem szamokon.
+      const keepKey = producerMergeKey(body.canonicalName ?? keep.canonical_name);
+      let aliasesCreated = 0;
       for (const s of sources) {
+        const extra = extraTokensOf(s.canonical_name, keepKey);
+        if (classifyExtra(extra) === 'wine_term' || classifyExtra(extra) === 'other') continue;
         await client.query(
           `INSERT INTO aliases
              (alias_type, alias_text, target_kind, target_id, source,
@@ -199,6 +226,7 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
             actor.id,
           ],
         );
+        aliasesCreated++;
       }
 
       // A beolvadt sorok ALIASZAI is atkerulnek: egy korabban rogzitett
@@ -250,7 +278,32 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
         [body.keepId, body.canonicalName ?? null],
       );
 
+      // ── 5. Eldobas ────────────────────────────────────────────────────
+      //
+      // Nem beolvadas: ezek a sorok NEM ugyanaz a boraszat, csak a nevuk
+      // kezdodik ugyanugy. `retired` allapotba kerulnek, igy egy kesobbi
+      // banyaszat sem javasolja oket ujra - a tobblet-szo pedig visszakerul
+      // oda, ahova valo: a bor nevebe.
+      //
+      // Aktiv, termekekhez kotott sort NEM dobunk el: annak elobb helyet
+      // kell talalni.
+      const discarded = discardIds.length
+        ? (await client.query(
+            `UPDATE producers SET status = 'retired',
+                    decided_by = $2, decided_at = now(),
+                    notes = coalesce(notes || E'\n', '')
+                            || 'Eldobva osszevonaskor: a tobblet nem boraszatnev.'
+              WHERE id = ANY($1::uuid[])
+                AND status <> 'merged'
+                AND NOT EXISTS (
+                  SELECT 1 FROM source_listings sl WHERE sl.producer_id = producers.id)`,
+            [discardIds, actor.id],
+          )).rowCount ?? 0
+        : 0;
+
       return {
+        discarded,
+        aliases: aliasesCreated,
         listings: listings.rowCount ?? 0,
         families: families.rowCount ?? 0,
         brands: brands.rowCount ?? 0,
@@ -261,8 +314,9 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
     await audit({
       actorUserId: actor.id, action: 'producer.merged', entityType: 'producer',
       entityId: body.keepId,
-      summary: `${sources.length} boraszat osszevonva ide: ${body.canonicalName ?? keep.canonical_name}`
-        + ` (${sources.map((s) => s.canonical_name).join(', ')})`,
+      summary: `${sources.length} beolvasztva, ${moved.discarded} eldobva`
+        + ` - tulelo: ${body.canonicalName ?? keep.canonical_name}`
+        + (sources.length ? ` (${sources.map((s) => s.canonical_name).join(', ')})` : ''),
       correlationId: req.correlationId,
     });
 
@@ -285,6 +339,8 @@ export async function producerMergeRoutes(app: FastifyInstance, config: AppConfi
       ok: true,
       keepId: body.keepId,
       merged: sources.length,
+      discarded: moved.discarded,
+      aliases: moved.aliases,
       moved,
       apply: { jobId: job.jobId, deduped: job.deduped },
     };

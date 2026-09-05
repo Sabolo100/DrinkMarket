@@ -17,6 +17,33 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { MergeGroup } from './page';
 
+/** A tulelot kiveve minden sor ezek valamelyike. */
+type MemberAction = 'keep' | 'merge' | 'discard' | 'skip';
+
+/**
+ * Mit mond a névben lévő TÖBBLET?
+ *
+ * Ez a különbség dönti el, hogy az összevonás hasznos-e vagy káros, és
+ * eddig fejben kellett elvégezni. A „Takler Borbirtok" a pincészet neve; a
+ * „Sauska Brut" a boré. Az elsőből hasznos aliasz lesz, a másodikból mérgező:
+ * a szótár a `brut` szót termelőnévként nyelné el, és a pezsgő-felismerés
+ * soha nem látná.
+ */
+const EXTRA_LABEL: Record<string, { text: string; chip: string; hint: string }> = {
+  marker: {
+    text: 'jelölő', chip: 'chip-verified',
+    hint: 'A többlet a pincészet nevéhez tartozik (Pince, Borbirtok, Kft.).',
+  },
+  wine_term: {
+    text: 'bor-szókincs', chip: 'chip-rejected',
+    hint: 'A többlet a BORRA vonatkozik (Brut, Extra Dry, Puttonyos) — nem a pincészetre.',
+  },
+  other: {
+    text: 'tételnév vagy dűlő', chip: 'chip-review',
+    hint: 'A többlet nem borászatnév: valószínűleg dűlő (Szenta-hegyi) vagy tételnév (Primarius).',
+  },
+};
+
 interface Props {
   group: MergeGroup;
   csrfToken: string;
@@ -26,7 +53,14 @@ interface Props {
 export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
   const router = useRouter();
   const [keepId, setKeepId] = useState(group.suggestedKeepId);
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  // Soronkenti muvelet. Az alapertelmezes a rendszer javaslata - az mar
+  // szetvalasztja a harom esetet, tehat a leggyakoribb esetben egy
+  // kattintassal vegezhetsz.
+  const [actions, setActions] = useState<Record<string, MemberAction>>(
+    () => Object.fromEntries(
+      group.members.map((m) => [m.id, m.suggestedAction === 'separate' ? 'skip' : m.suggestedAction]),
+    ) as Record<string, MemberAction>,
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,36 +69,31 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
     group.members.find((m) => m.id === group.suggestedKeepId)?.canonicalName ?? '',
   );
 
-  const mergeIds = group.members
-    .filter((m) => m.id !== keepId && !excluded.has(m.id))
-    .map((m) => m.id);
+  const act = (id: string): MemberAction => (id === keepId ? 'keep' : actions[id] ?? 'skip');
+
+  const mergeIds = group.members.filter((m) => act(m.id) === 'merge').map((m) => m.id);
+  const discardIds = group.members.filter((m) => act(m.id) === 'discard').map((m) => m.id);
 
   const movedListings = group.members
     .filter((m) => mergeIds.includes(m.id))
     .reduce((s, m) => s + m.linkedListings, 0);
 
-  function toggleExcluded(id: string) {
-    setExcluded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  // Hany nevbol lesz tenylegesen aliasz? Csak a jelolos nevekbol - a
+  // bor-szokincsbol keszult aliasz elnyelne a termek azonositoit.
+  const aliasCount = group.members
+    .filter((m) => mergeIds.includes(m.id) && m.aliasUseful).length;
+
+  function setAction(id: string, a: MemberAction) {
+    setActions((prev) => ({ ...prev, [id]: a }));
   }
 
   function selectKeep(id: string) {
     setKeepId(id);
     setDraft(group.members.find((m) => m.id === id)?.canonicalName ?? '');
-    // A tulelo sosem lehet egyszerre kizarva is - az ertelmetlen allapot.
-    setExcluded((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
   }
 
   async function merge() {
-    if (!mergeIds.length) return;
+    if (!mergeIds.length && !discardIds.length) return;
     setBusy(true); setError(null); setMessage(null);
     try {
       const res = await fetch('/api/v1/producers/merge', {
@@ -73,6 +102,7 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
         body: JSON.stringify({
           keepId,
           mergeIds,
+          discardIds,
           ...(renaming && draft.trim() ? { canonicalName: draft.trim() } : {}),
         }),
       });
@@ -81,8 +111,9 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
         setError(data?.error?.message ?? 'Az összevonás nem sikerült.');
       } else {
         setMessage(
-          `${data.merged} sor összevonva · ${data.moved?.listings ?? 0} termék átkerült`
-          + ' · újrakinyerés indul',
+          `${data.merged} beolvasztva · ${data.discarded ?? 0} eldobva`
+          + ` · ${data.moved?.listings ?? 0} termék átkerült`
+          + ` · ${data.aliases ?? 0} aliasz · újrakinyerés indul`,
         );
         setTimeout(() => router.refresh(), 1500);
       }
@@ -129,16 +160,16 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
               <th style={{ width: 90 }}>Megtart</th>
               <th>Név</th>
               <th style={{ width: 110 }}>Állapot</th>
-              <th className="right" style={{ width: 90 }}>Termék</th>
-              <th style={{ width: 110 }}>Kihagy</th>
+              <th className="right" style={{ width: 80 }}>Termék</th>
+              <th style={{ width: 300 }}>Mi legyen vele</th>
             </tr>
           </thead>
           <tbody>
             {group.members.map((m) => {
               const isKeep = m.id === keepId;
-              const isOut = excluded.has(m.id);
+              const a = act(m.id);
               return (
-                <tr key={m.id} style={isOut ? { opacity: 0.45 } : undefined}>
+                <tr key={m.id} style={a === 'skip' ? { opacity: 0.5 } : undefined}>
                   <td>
                     <label className="row-tight" style={{ gap: 6, cursor: 'pointer' }}>
                       <input
@@ -170,6 +201,16 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
                         személynév
                       </span>
                     )}
+                    {!isKeep && EXTRA_LABEL[m.extraKind] && (
+                      <span
+                        className={`chip ${EXTRA_LABEL[m.extraKind]!.chip}`}
+                        style={{ marginLeft: 6 }}
+                        title={EXTRA_LABEL[m.extraKind]!.hint}
+                      >
+                        {EXTRA_LABEL[m.extraKind]!.text}
+                        {m.extraTokens.length ? `: ${m.extraTokens.join(' ')}` : ''}
+                      </span>
+                    )}
                   </td>
                   <td className="freshness muted">
                     {m.status === 'active' ? 'jóváhagyva' : 'jelölt'}
@@ -177,16 +218,32 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
                   <td className="right num">{m.linkedListings || '—'}</td>
                   <td>
                     {!isKeep && (
-                      <label className="row-tight freshness" style={{ gap: 6, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox" checked={isOut}
-                          disabled={!canDecide || busy}
-                          onChange={() => toggleExcluded(m.id)}
-                        />
-                        <span title="Ez a sor nem ugyanaz a borászat — maradjon külön.">
-                          nem ez
+                      <>
+                        <div className="row-tight" style={{ gap: 4 }}>
+                          {([
+                            ['merge', 'beolvad', 'A termékei átkerülnek a megtartott sorhoz.'],
+                            ['discard', 'elvet', 'Nem ez a borászat. A többletszó visszakerül a bor nevébe.'],
+                            ['skip', 'marad', 'Külön borászat — érintetlenül hagyjuk.'],
+                          ] as const).map(([value, label, hint]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              className={`btn btn-sm${a === value ? '' : ' btn-ghost'}`}
+                              disabled={!canDecide || busy
+                                || (value === 'discard' && m.linkedListings > 0)}
+                              title={value === 'discard' && m.linkedListings > 0
+                                ? `${m.linkedListings} termék lóg rajta — azoknak előbb helyet kell találni.`
+                                : hint}
+                              onClick={() => setAction(m.id, value)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <span className="freshness muted" style={{ display: 'block', marginTop: 4 }}>
+                          {m.actionReason}
                         </span>
-                      </label>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -198,8 +255,12 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
 
       {canDecide && (
         <div className="row-tight" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-          <button className="btn btn-sm" disabled={busy || !mergeIds.length} onClick={merge}>
-            {busy ? 'Összevonás…' : `Összevonás (${mergeIds.length})`}
+          <button
+            className="btn btn-sm"
+            disabled={busy || (!mergeIds.length && !discardIds.length)}
+            onClick={merge}
+          >
+            {busy ? 'Mentés…' : `Mentés · ${mergeIds.length} beolvad, ${discardIds.length} elvetve`}
           </button>
           <button
             className="btn btn-sm btn-ghost" disabled={busy}
@@ -209,9 +270,10 @@ export function MergeGroupCard({ group, csrfToken, canDecide }: Props) {
             {renaming ? 'Mégsem' : 'Túlélő átnevezése'}
           </button>
           <span className="freshness muted">
-            {mergeIds.length
+            {mergeIds.length || discardIds.length
               ? `${movedListings} termék kerül át a megtartott sorhoz`
-              : 'Jelölj ki legalább egy beolvadó sort.'}
+                + `${aliasCount ? ` · ${aliasCount} névből lesz aliasz` : ' · aliasz nem keletkezik'}`
+              : 'Válassz legalább egy sorhoz műveletet.'}
           </span>
         </div>
       )}

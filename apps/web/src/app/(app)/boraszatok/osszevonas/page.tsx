@@ -26,6 +26,12 @@ export interface MergeMember {
   candidateScore: number | null;
   personName: boolean;
   fuzzyBlocked: boolean;
+  /** Ami a névben a csoport magján felül van. */
+  extraTokens: string[];
+  extraKind: 'marker' | 'wine_term' | 'other' | 'none';
+  aliasUseful: boolean;
+  suggestedAction: 'keep' | 'merge' | 'discard' | 'separate';
+  actionReason: string;
 }
 
 export interface MergeGroup {

@@ -119,6 +119,49 @@ function fullKey(name: string): string {
     .join(' ');
 }
 
+/**
+ * A tobblet-tokenek besorolasa.
+ *
+ * `marker`    - a boraszat nevehez tartozik (Borbirtok, Pince, Kft.)
+ * `wine_term` - a BORHOZ tartozik (Brut, Extra Dry, Puttonyos)
+ * `other`     - se ez, se az: dulo, tetelnev, vagy masik boraszat
+ * `none`      - nincs tobblet (ez maga a mag)
+ */
+export function classifyExtra(extra: readonly string[]): ExtraKind {
+  if (!extra.length) return 'none';
+  const isMarker = (t: string) =>
+    SUFFIX_MARKERS.has(t) || LEGAL_FORMS.has(t) || PREFIX_MARKERS.has(t);
+  if (extra.every(isMarker)) return 'marker';
+  if (extra.every((t) => WINE_TERMS.has(t))) return 'wine_term';
+  return 'other';
+}
+
+/** A nevbol a csoport magjan FELULI tokenek. */
+export function extraTokensOf(name: string, key: string): string[] {
+  const core = new Set(key.split(' ').filter(Boolean));
+  return tokensOf(name).filter((t) => !core.has(t) && !NUMERIC_RE.test(t));
+}
+
+/**
+ * Mi a TOBBLET a csoport magjahoz kepest?
+ *
+ * A merge-csoportokban harom, gyokeresen kulonbozo eset kevereedik, es a
+ * kulonbseg nem a szamokban van, hanem a SZOKINCSBEN:
+ *
+ *   Takler ↔ Takler BORBIRTOK    a tobblet a boraszat nevehez tartozik
+ *   Sauska ↔ Sauska BRUT         a tobblet a BORHOZ tartozik
+ *   Takler ↔ Takler SZENTA HEGYI  a tobblet dulo vagy tetelnev
+ *
+ * A kulonbseg gyakorlati: az elsobol hasznos ALIASZ lesz, a masodikbol
+ * MERGEZO. Ha a "Sauska Brut" aliassza valik, a parser a `brut` szot
+ * termelonevkent nyeli el - es akkor a pezsgo-felismeres soha nem latja.
+ * A tetelnev pedig elveszti azt a szot, ami megkulonbozteti a tobbitol.
+ */
+export type ExtraKind = 'marker' | 'wine_term' | 'other' | 'none';
+
+/** Mit erdemes tenni ezzel a sorral? */
+export type MemberAction = 'keep' | 'merge' | 'discard' | 'separate';
+
 export interface MergeMember {
   id: string;
   canonicalName: string;
@@ -133,6 +176,24 @@ export interface MergeMember {
 
 export type MergeConfidence = 'high' | 'medium';
 
+/** Egy csoporttag, a tobblet elemzesevel egyutt. */
+export interface ClassifiedMember extends MergeMember {
+  /** Ami a nevben a csoport magjan FELUL van. */
+  extraTokens: string[];
+  extraKind: ExtraKind;
+  /**
+   * Erdemes-e aliaszt csinalni a nevbol?
+   *
+   * Csak akkor, ha a tobblet a boraszat nevehez tartozik. A bor-szokincsbol
+   * es a tetelnevbol keszult aliasz megmergezi a szotarat: elnyeli azokat a
+   * szavakat, amik a TERMEKET azonositjak.
+   */
+  aliasUseful: boolean;
+  suggestedAction: MemberAction;
+  /** Egy mondat arrol, miert ez a javaslat. */
+  actionReason: string;
+}
+
 export interface MergeGroup {
   key: string;
   /** `prefix`: az egyik nev a masik roviditese. `token`: kozos vezeto token. */
@@ -140,7 +201,7 @@ export interface MergeGroup {
   confidence: MergeConfidence;
   /** A javasolt tulelo. Csak javaslat - a felhasznalo felulirhatja. */
   suggestedKeepId: string;
-  members: MergeMember[];
+  members: ClassifiedMember[];
   /**
    * Miert kell ide emberi szem? Ures tomb = nincs kulon figyelmeztetes.
    * Sosem nemitjuk el a csoportot: a gyanu megjelenik, a dontes emberi.
@@ -221,12 +282,59 @@ export function groupMergeCandidates(rows: readonly MergeMember[]): MergeGroup[]
       );
     }
 
+    const keepId = pickSurvivor(members).id;
+
+    // Minden tagra: MI a tobblet, es MIT erdemes vele tenni.
+    //
+    // Ez a lista eddig egyetlen muveletet ismert - az osszevonast -, es
+    // ezert harom kulonbozo esetet kezelt egyformannak. A "Sauska Brut"
+    // beolvasztasa nem takaritas volt, hanem kar: a `brut` szo aliaszkent
+    // termelonevbe kerult, es a pezsgo-felismeres soha tobbe nem latta.
+    const classified: ClassifiedMember[] = members.map((m) => {
+      const extraTokens = extraTokensOf(m.canonicalName, key);
+      const extraKind = classifyExtra(extraTokens);
+      const aliasUseful = extraKind === 'marker' || extraKind === 'none';
+
+      let suggestedAction: MemberAction;
+      let actionReason: string;
+
+      if (m.id === keepId) {
+        suggestedAction = 'keep';
+        actionReason = 'A csoport legerosebb sora - ez viszi tovabb a tobbit.';
+      } else if (m.personName || m.fuzzyBlocked) {
+        // A szemelynev SOHA nem javaslunk osszevonasra: a "Gere Attila" es a
+        // "Gere Zsolt" ket kulon boraszat.
+        suggestedAction = 'separate';
+        actionReason = 'Szemelynev-gyanu: konnyen ket kulon boraszat.';
+      } else if (aliasUseful) {
+        suggestedAction = 'merge';
+        actionReason = extraKind === 'none'
+          ? 'Ugyanaz a nev.'
+          : 'A tobblet a boraszat nevehez tartozik - az aliasz hasznos lesz.';
+      } else if (m.linkedListings > 0) {
+        // Kenyszerhelyzet: a termekeknek helye kell. Osszevonjuk, de aliaszt
+        // NEM csinalunk belole.
+        suggestedAction = 'merge';
+        actionReason = `${m.linkedListings} termek log rajta, azoknak helye kell - `
+          + 'de a nevbol nem lesz aliasz, mert a tobblet a borhoz tartozik.';
+      } else {
+        suggestedAction = 'discard';
+        actionReason = extraKind === 'wine_term'
+          ? 'A tobblet a BORHOZ tartozik, nem a pinceszethez. Eldobva a szo '
+            + 'visszakerul a bor nevebe, ahonnan jott.'
+          : 'A tobblet nem boraszatnev (dulo vagy tetelnev). Eldobva a szo '
+            + 'visszakerul a bor nevebe.';
+      }
+
+      return { ...m, extraTokens, extraKind, aliasUseful, suggestedAction, actionReason };
+    });
+
     groups.push({
       key,
       kind: isPrefix ? 'prefix' : 'token',
       confidence: isPrefix && warnings.length === 0 ? 'high' : 'medium',
-      suggestedKeepId: pickSurvivor(members).id,
-      members: [...members].sort((a, b) => b.linkedListings - a.linkedListings),
+      suggestedKeepId: keepId,
+      members: classified.sort((a, b) => b.linkedListings - a.linkedListings),
       warnings,
     });
   }
