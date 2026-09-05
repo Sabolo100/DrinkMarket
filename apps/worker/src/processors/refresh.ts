@@ -44,7 +44,22 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
 
     // Igazolt kapcsolatu listingek + a korabban eltuntek heti ujraellenorzese
     const listings = await query<KnownListingRef & { identity_hash: string | null }>(
-      `SELECT sl.id, sl.canonical_url, sl.final_url, sl.platform_product_id AS "platformProductId",
+      // A `canonicalUrl` es a `finalUrl` ALIAS NELKUL maradt, a tobbi mezo
+      // viszont camelCase-re volt fordítva. A `KnownListingRef` a camelCase
+      // alakot varja, tehat a sorban `canonical_url` allt, a letoltonek pedig
+      // `undefined` ment - MINDEN termeknel.
+      //
+      // A kovetkezmeny nem hibauzenet volt, hanem csendes adatromlas: az
+      // `assertSafeUrl` "Ervenytelen URL: undefined"-dal dobott, az adapter
+      // ebbol `unavailable`-t csinalt, a frissito pedig eltuntnek jelolte a
+      // terméket. Ot boltban, 1611 soron - es mivel a publikalas `active`
+      // listinget kovetel, ezzel esett ki az igazolt parositasok ketharmada.
+      //
+      // Az arfrissites ezek szerint SOHA nem mukodott: nulla HTTP keres ment
+      // ki belole, es a "megbukott minosegi kapu" csak utolag mondta ki, hogy
+      // a futas rossz volt.
+      `SELECT sl.id, sl.canonical_url AS "canonicalUrl", sl.final_url AS "finalUrl",
+              sl.platform_product_id AS "platformProductId",
               sl.platform_variant_id AS "platformVariantId", sl.sku, sl.url_key AS "urlKey",
               sl.identity_hash
          FROM source_listings sl
@@ -106,6 +121,24 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
         if (i >= listings.length) return;
         if (Date.now() - started > config.maxRunDurationMs) return;
         const listing = listings[i]!;
+
+        // Programozoi hiba, nem bolti allapot.
+        //
+        // Ha ide URL nelkuli sor jut, azt a letolto `Ervenytelen URL:
+        // undefined`-dal utasitja el, az adapter `unavailable`-t ad vissza, a
+        // frissito pedig eltuntnek jelolne a terméket. Pontosan ez tortent:
+        // egy hianyzo SQL-alias miatt MINDEN sor URL nelkul erkezett, es 1611
+        // termek esett ki a piaci oldalrol.
+        //
+        // Kulon kodot kap, hogy legkozelebb egy pillantasbol lathato legyen.
+        if (!listing.canonicalUrl) {
+          failed++;
+          infraErrors.set('LISTING_URL_MISSING', (infraErrors.get('LISTING_URL_MISSING') ?? 0) + 1);
+          infraSample.set('LISTING_URL_MISSING',
+            'A listing URL nelkul erkezett a lekerdezesbol - ez kodhiba, nem a bolt hibaja.');
+          continue;
+        }
+
         try {
           const result = await adapter.refreshKnownListing(built.ctx, listing);
 
