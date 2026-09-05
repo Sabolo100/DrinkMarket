@@ -531,6 +531,38 @@ export async function persistListing(opts: PersistOptions): Promise<PersistResul
   });
 }
 
+/**
+ * Bizonyitja-e ez a valasz, hogy a termek MAR NINCS MEG?
+ *
+ * Az `unavailable` allapot ket, gyokeresen kulonbozo dolgot takar:
+ *
+ *   - a BOLT valaszolt, es azt mondta, hogy nincs meg (HTTP 404, vagy egy
+ *     404-nek latszo oldal) - ez bizonyitek;
+ *   - MI nem tudtuk megkerdezni (DNS, TLS, SSRF-or, robots, halozat) - ez
+ *     nem bizonyit semmit a termekrol, csak rolunk.
+ *
+ * A ketto eddig ugyanabba az agba futott, es a masodikbol is "eltunt" lett.
+ * A kovetkezmenye merheto volt: egyetlen, nulla kerest kuldo futas 1114
+ * terméket jelolt eltuntnek, es ezzel a publikalasbol kiesett a katalogus
+ * ketharmada - mert a piaci oldal `active` listinget kovetel.
+ *
+ * Ez ugyanaz a hiba, mint amikor a szallitasi kuszobot arnak vettuk: a
+ * bizonyitek HIANYABOL lett bizonyitek. A rendszer alapelve ennek az
+ * ellenkezoje.
+ *
+ * Ismeretlen hibakod eseten a valasz NEM: aki uj agat vezet be, annak
+ * kifejezetten ki kell mondania, hogy az bizonyitek.
+ */
+export function isDisappearanceEvidence(result: {
+  diagnostics?: { errors?: ReadonlyArray<{ code?: string }> } | null;
+}): boolean {
+  const codes = (result.diagnostics?.errors ?? [])
+    .map((e) => (e.code ?? '').toUpperCase())
+    .filter(Boolean);
+  if (!codes.length) return false;
+  return codes.some((c) => c === 'SOFT_404' || c === 'HTTP_404' || c === 'HTTP_410');
+}
+
 /** Egy listing hianyzokent jelolese. NEM torli a kapcsolatot (spec 11.7). */
 export async function markListingMissing(listingId: string, reason: string): Promise<void> {
   await execute(

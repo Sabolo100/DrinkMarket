@@ -12,7 +12,9 @@ import { loadRobots } from '@radovin/crawler-core';
 import { execute, query, queryOne } from '@radovin/db';
 import { logger, metrics, newCorrelationId, withContext } from '@radovin/observability';
 import type { WorkerConfig } from '../config.js';
-import { categoryIdForKey, markListingMissing, persistListing } from '../lib/persist.js';
+import {
+  categoryIdForKey, isDisappearanceEvidence, markListingMissing, persistListing,
+} from '../lib/persist.js';
 import { crawlTrigger } from '../lib/crawl-trigger.js';
 import { cleanupArtifacts } from '../lib/artifacts.js';
 import { raiseAlert, rebuildAndPublish } from '../lib/publish.js';
@@ -91,6 +93,13 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
     const concurrency = Math.max(1, shop.crawlPolicy.maxConcurrency);
     let index = 0;
 
+    // Miert bukott a futas? Ma a `crawl_runs` nem orizte meg az adapter
+    // hibauzenetet, ezert egy nulla kerest kuldo futas okat csak a konteneri
+    // naplobol - vagy kizarasos modszerrel - lehetett kideriteni. Kodonkent
+    // gyujtjuk, es a vegen beirjuk.
+    const infraErrors = new Map<string, number>();
+    const infraSample = new Map<string, string>();
+
     const loop = async (): Promise<void> => {
       for (;;) {
         const i = index++;
@@ -101,9 +110,20 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
           const result = await adapter.refreshKnownListing(built.ctx, listing);
 
           if (result.status === 'unavailable') {
-            // 404 eseten NEM torlodik a kapcsolat: eltuntkent jeloljuk,
-            // es a discovery / ujrakereses dont a sorsarol (spec 11.7).
-            await markListingMissing(listing.id, 'Az arfrissiteskor a termekoldal nem elerheto (404/eltunt).');
+            // CSAK akkor jeloljuk eltuntnek, ha a BOLT mondta. Ha mi nem
+            // tudtuk megkerdezni (DNS, TLS, SSRF-or, robots, halozat), az
+            // nem bizonyit semmit a termekrol - a sor marad, ahogy volt.
+            if (!isDisappearanceEvidence(result)) {
+              failed++;
+              const code = result.diagnostics?.errors?.[0]?.code ?? 'UNKNOWN';
+              const message = result.diagnostics?.errors?.[0]?.message ?? '';
+              infraErrors.set(code, (infraErrors.get(code) ?? 0) + 1);
+              if (!infraSample.has(code)) infraSample.set(code, message.slice(0, 200));
+              continue;
+            }
+            // A kapcsolat itt sem torlodik: eltuntkent jeloljuk, es a
+            // discovery / ujrakereses dont a sorsarol (spec 11.7).
+            await markListingMissing(listing.id, 'Az arfrissiteskor a bolt szerint a termek mar nincs meg (404).');
             missing++;
             continue;
           }
@@ -145,8 +165,38 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
 
     await Promise.all(Array.from({ length: concurrency }, () => loop()));
 
+    // VEDOKORLAT: egy futas, ami egyetlen kerest sem kuldott ki, nem tanult
+    // semmit a boltrol. Ilyenkor a "sikerarany" onmagaban felrevezeto lenne
+    // (nulla per nulla), es a futas semmikeppen nem tekintheto sikeresnek.
+    const noRequests = built.diagnostics.requestsAttempted === 0 && listings.length > 0;
+
     const successRate = listings.length ? ok / listings.length : 1;
-    const status = successRate >= 0.7 ? 'succeeded' : successRate >= 0.3 ? 'partial' : 'failed';
+    const status = noRequests
+      ? 'failed'
+      : successRate >= 0.7 ? 'succeeded' : successRate >= 0.3 ? 'partial' : 'failed';
+
+    // A hibak kodonkent, egy peldauzenettel. Ez az, ami eddig hianyzott.
+    const errorLog = [...infraErrors.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([code, count]) => ({
+        code, count,
+        message: infraSample.get(code) ?? '',
+      }));
+    if (noRequests) {
+      errorLog.unshift({
+        code: 'NO_REQUESTS_SENT',
+        count: listings.length,
+        message: 'A futas egyetlen HTTP kerest sem kuldott ki. A termekek allapotarol '
+          + 'ezert semmit nem tudunk - egyetlen sort sem jeloltunk eltuntnek.',
+      });
+    }
+    if (errorLog.length) {
+      logger.warn('refresh.infra_errors', {
+        shopKey: shop.key, runId, noRequests,
+        codes: Object.fromEntries(infraErrors),
+      });
+    }
 
     await execute(
       `UPDATE crawl_runs SET
@@ -154,7 +204,8 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
          requests_attempted = $5, requests_succeeded = $6, requests_failed = $7,
          rate_limit_hits = $8, extract_ok = $9, extract_failed = $10,
          listings_missing = $11, listings_updated = $12,
-         http_status_counts = $13::jsonb, quality_gate_passed = $14
+         http_status_counts = $13::jsonb, quality_gate_passed = $14,
+         errors = $15::jsonb
        WHERE id = $1`,
       [
         runId, status, status === 'succeeded' ? 'ok' : status === 'partial' ? 'partial' : 'unavailable',
@@ -164,6 +215,7 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
         ok, failed, missing, priceChanges,
         JSON.stringify(built.diagnostics.httpStatusCounts),
         status === 'succeeded',
+        JSON.stringify(errorLog),
       ],
     );
 
