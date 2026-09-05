@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { MatchStatusChip, ShopDot } from '@/components/Signals';
-import { apiSafe, ago, dateTime, num } from '@/lib/api';
+import { apiSafe, currentSession, ago, dateTime, num } from '@/lib/api';
+import { RecheckBar } from './RecheckBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,7 @@ export default async function ReviewListPage({
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) if (typeof v === 'string' && v) qs.set(k, v);
 
-  const [data, shops] = await Promise.all([
+  const [data, shops, session] = await Promise.all([
     apiSafe<{
       items: Case[]; total: number; page: number; pageSize: number; hasMore: boolean;
       summary: Array<{ case_type: string; status: string; count: number }>;
@@ -44,6 +45,7 @@ export default async function ReviewListPage({
       items: [], total: 0, page: 1, pageSize: 50, hasMore: false, summary: [], reasonLabels: {},
     }),
     apiSafe<{ items: Array<{ id: string; name: string; brand_color: string | null }> }>('/shops', { items: [] }),
+    currentSession(),
   ]);
 
   const byType = new Map<string, number>();
@@ -70,6 +72,11 @@ export default async function ReviewListPage({
           </div>
         }
       />
+
+      {/* A sor elavulhat: a javaslatok nem frissülnek maguktól attól, hogy
+          közben jóváhagytál egy borászatot. Ez a sáv csak akkor jelenik meg,
+          amikor tényleg történt valami. */}
+      <RecheckBar csrfToken={session?.csrfToken ?? ''} />
 
       {/* Eset-típusok gyors szűrője */}
       <div className="toolbar">

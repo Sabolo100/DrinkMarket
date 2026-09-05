@@ -68,6 +68,7 @@ export function Shell({ user, csrfToken, shops, counts, children }: Props) {
 
           <div className="nav-group">
             <div className="label">Rendszer</div>
+            <NavLink href="/folyamatok">Folyamatkezelés</NavLink>
             <NavLink href="/beallitasok">Beállítások</NavLink>
             <NavLink href="/auditnaplo">Auditnapló</NavLink>
           </div>
