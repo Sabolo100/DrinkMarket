@@ -90,9 +90,20 @@ const NOT_WINE_WORDS = new Set([
   // Kellek es csomagolas. A bolt sajat kategoriaja ezeket gyakran "Bor" ala
   // teszi, az aruk pedig helytarto: a winehub "Bujdoso Diszdoboz 1-es" tetele
   // 1 Ft-tal allt, es igy a legolcsobb "bor" lett volna a piaci oldalon.
-  'diszdoboz', 'ajandekdoboz', 'diszcsomagolas', 'ajandekutalvany', 'utalvany',
-  'diszzacsko', 'bortaska', 'borhuto', 'dekantalo', 'kostolojegy',
+  'diszdoboz', 'ajandekdoboz', 'diszcsomagolas', 'csomagolas', 'ajandekutalvany',
+  'utalvany', 'diszzacsko', 'disztaska', 'bortaska', 'taska', 'tasak', 'papir',
+  'borhuto', 'dekantalo', 'kostolojegy',
 ]);
+// Miert kell ez a lista, ha van szin- es stilusfelismeres?
+//
+// Mert a szin onmagaban gyenge bizonyitek. A "Boros papir doboz 1-es - Feher"
+// azert lett bor, mert a `feher` a szotarban BORSTILUS - a "Naturt" viszont
+// semmi nem valtotta ki, es az ugyanaz a termek. Ket sor, ket kategoria,
+// egyetlen szo miatt.
+//
+// A szinfelismerest nem gyengitjuk: valodi boroknal ("Villanyi voros 2019")
+// az a besorolas egyetlen tampontja lehet. A kelleket a SAJAT szavarol
+// ismerjuk fel - az a biztosabb jel, mint a szin hianya.
 
 /**
  * MELYIK ital-kategoria? Es egyaltalan: bor-e?

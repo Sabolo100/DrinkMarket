@@ -232,4 +232,22 @@ describe('a kellek nem bor', () => {
       parsed({ grapes: 1, tokens: ['bujdoso', 'kadarka', '2021'] }), lookups, null,
     )).toBe(CAT.wine);
   });
+
+  // A veritasnal ket sor allt egymas mellett ugyanarrol a termekrol:
+  // a "Natur" nem lett bor, a "Feher" igen - mert a `feher` a szotarban
+  // BORSTILUS. Egyetlen szo valasztotta el a ket kategoriat.
+  it('a szin nem tesz borra egy papirdobozt', () => {
+    expect(wineCategoryFor(
+      parsed({ styleId: STYLE_SZARAZ, tokens: ['boros', 'papir', 'doboz', '1', 'es', 'feher'] }),
+      lookups, null,
+    )).toBeNull();
+  });
+
+  // ...de a szin ONMAGABAN tovabbra is eleg egy valodi bornal, ahol nincs
+  // kellek-szo. Ez gyakran az egyetlen tampont.
+  it('a szin viszont valodi bornal tovabbra is dont', () => {
+    expect(wineCategoryFor(
+      parsed({ styleId: STYLE_SZARAZ, tokens: ['villanyi', 'feher', '2019'] }), lookups, null,
+    )).toBe(CAT.wine);
+  });
 });
