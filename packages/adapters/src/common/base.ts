@@ -32,6 +32,15 @@ export interface AdapterConfig {
   healthCheckUrl?: string;
   /** A forras altal hasznalt minor unit, ha ismert. */
   minorUnitHint?: number;
+  /**
+   * Extra query-parameterek a platform API hivasaihoz.
+   *
+   * Tobbnyelvu WooCommerce boltnal ez dont arrol, MELYIK katalogust kerjuk.
+   * A winehub peldaul 1 438 magyar es 1 483 angol terméket tart nyilvan, sajat
+   * azonositokkal - parameter nelkul MINDKETTOT megkapnank, azaz minden bor
+   * ketszer kerulne be, ket kulon URL-en.
+   */
+  platformApiParams?: Record<string, string>;
   /** Kotelezo mezok az extraction_quality szamitasahoz (kategoriafuggo). */
   requiredFields?: string[];
   /** Bongeszos mod kenyszeritese (csak ha nincs statikus ut). */

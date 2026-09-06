@@ -58,11 +58,27 @@ export class WooCommerceAdapter extends BaseAdapter {
     categoryPages: true, internalSearch: true, requiresBrowser: false,
   };
 
+  /**
+   * Store API URL a bolt beallitott extra parametereivel.
+   *
+   * Tobbnyelvu boltnal a `lang` dont arrol, melyik katalogust kapjuk. Nelkule
+   * minden termek ketszer erkezne - egyszer magyarul, egyszer angolul, kulon
+   * azonositoval es kulon URL-en -, es ugyanaz a bor ket kulon listingge
+   * valna ugyanabban a boltban.
+   */
+  private withParams(ctx: AdapterContext, path: string): string {
+    const url = new URL(path, ctx.shop.baseUrl);
+    for (const [k, v] of Object.entries(this.config(ctx).platformApiParams ?? {})) {
+      url.searchParams.set(k, v);
+    }
+    return url.toString();
+  }
+
   private storeApiUrl(ctx: AdapterContext, page: number, perPage = 100): string {
-    return new URL(
+    return this.withParams(
+      ctx,
       `/wp-json/wc/store/v1/products?per_page=${perPage}&page=${page}&orderby=id&order=asc`,
-      ctx.shop.baseUrl,
-    ).toString();
+    );
   }
 
   override async discover(ctx: AdapterContext): Promise<DiscoveryResult> {
@@ -164,7 +180,7 @@ export class WooCommerceAdapter extends BaseAdapter {
     const idMatch = html.match(/post-(\d+)|"product_id"\s*:\s*"?(\d+)"?|data-product_id="(\d+)"/);
     const id = target.platformProductId ?? idMatch?.[1] ?? idMatch?.[2] ?? idMatch?.[3];
     if (!id) return null;
-    const url = new URL(`/wp-json/wc/store/v1/products/${id}`, ctx.shop.baseUrl).toString();
+    const url = this.withParams(ctx, `/wp-json/wc/store/v1/products/${id}`);
     const res = await ctx.fetch(url, { acceptJson: true }).catch(() => null);
     if (!res?.ok || res.guard.blocked) return null;
     try {
@@ -180,7 +196,7 @@ export class WooCommerceAdapter extends BaseAdapter {
     listing: KnownListingRef,
   ): Promise<ExtractResult | null> {
     if (!listing.platformProductId) return null;
-    const url = new URL(`/wp-json/wc/store/v1/products/${listing.platformProductId}`, ctx.shop.baseUrl).toString();
+    const url = this.withParams(ctx, `/wp-json/wc/store/v1/products/${listing.platformProductId}`);
     const res = await ctx.fetch(url, { acceptJson: true }).catch(() => null);
     if (!res) return null;
     if (res.status === 404) {
