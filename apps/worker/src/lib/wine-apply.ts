@@ -87,6 +87,11 @@ const NOT_WINE_WORDS = new Set([
   'scotch', 'unicum', 'vermut', 'vermouth', 'abszint', 'absinthe', 'sake',
   'sor', 'beer', 'ale', 'lager', 'cider', 'almabor', 'metelt', 'mead',
   'szorp', 'udito', 'kave', 'tea', 'pohar', 'dekanter', 'dugohuzo',
+  // Kellek es csomagolas. A bolt sajat kategoriaja ezeket gyakran "Bor" ala
+  // teszi, az aruk pedig helytarto: a winehub "Bujdoso Diszdoboz 1-es" tetele
+  // 1 Ft-tal allt, es igy a legolcsobb "bor" lett volna a piaci oldalon.
+  'diszdoboz', 'ajandekdoboz', 'diszcsomagolas', 'ajandekutalvany', 'utalvany',
+  'diszzacsko', 'bortaska', 'borhuto', 'dekantalo', 'kostolojegy',
 ]);
 
 /**

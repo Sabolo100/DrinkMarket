@@ -206,3 +206,30 @@ describe('a tomeny nem bor, meg fajtaval sem', () => {
     )).toBe(CAT.wine);
   });
 });
+
+/**
+ * Kellek es csomagolas: a bolt sajat kategoriaja ezeket gyakran "Bor" ala
+ * teszi, az aruk pedig helytarto. A winehub "Bujdoso Diszdoboz 1-es" tetele
+ * 1 Ft-tal allt - igy az lett volna a legolcsobb "bor" a piaci oldalon.
+ *
+ * Egy hamis legolcsobb ugyanolyan karos, mint egy hamis draga: mindketto
+ * hazudik arrol, hol eri meg vasarolni.
+ */
+describe('a kellek nem bor', () => {
+  for (const tokens of [
+    ['bujdoso', 'diszdoboz', '1', 'es'],
+    ['ajandekdoboz', '3', 'palackos'],
+    ['ajandekutalvany', '10000', 'ft'],
+    ['bortaska', '2', 'palackos'],
+  ]) {
+    it(`"${tokens.join(' ')}" nem kap bor-besorolast`, () => {
+      expect(wineCategoryFor(parsed({ tokens }), lookups, null)).toBeNull();
+    });
+  }
+
+  it('a valodi bor tovabbra is bor marad', () => {
+    expect(wineCategoryFor(
+      parsed({ grapes: 1, tokens: ['bujdoso', 'kadarka', '2021'] }), lookups, null,
+    )).toBe(CAT.wine);
+  });
+});
