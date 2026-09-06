@@ -20,6 +20,7 @@ import { cleanupArtifacts } from '../lib/artifacts.js';
 import { raiseAlert, rebuildAndPublish } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
 import { enqueueFromWorker } from '../lib/queue-client.js';
+import { auditShopPrices } from '../lib/price-audit.js';
 
 export interface RefreshShopPayload {
   shopId: string;
@@ -274,13 +275,21 @@ export async function processRefreshShop(job: Job<RefreshShopPayload>, config: W
     metrics.counter('refresh.failed', failed, { shop: shop.key });
     metrics.counter('refresh.price_changes', priceChanges, { shop: shop.key });
 
+    // Ha a bolt termekeinek tulnyomo resze UGYANAZT az arat kapta, az nem ar.
+    // A szovegszurok mindig egy lepessel a valosag mogott jarnak; ez a
+    // szabaly az EREDMENYT nezi, tehat fuggetlen a kinyeresi uttol.
+    const uniform = await auditShopPrices(shopId).catch(() => null);
+
     await enqueueFromWorker(config, {
       queue: 'aggregate-dashboard', name: 'rebuild',
       payload: { trigger: 'price_refresh' }, idempotencyKey: 'aggregate:rebuild',
       delayMs: 30_000, correlationId,
     });
 
-    return { runId, checked: listings.length, ok, failed, missing, drifted, priceChanges, status };
+    return {
+      runId, checked: listings.length, ok, failed, missing, drifted, priceChanges, status,
+      ...(uniform ? { uniformPrice: uniform } : {}),
+    };
   });
 }
 

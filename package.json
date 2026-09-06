@@ -42,6 +42,7 @@
     "match:pipeline": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/pipeline-check.ts",
     "match:restore-missing": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/restore-missing.ts",
     "match:undo-merge": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/undo-merge.ts",
+    "match:price-audit": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/price-audit.ts",
     "ops:triage": "node apps/worker/dist/cli/triage-report.js",
     "ops:apply": "node apps/worker/dist/cli/wine-apply-report.js",
     "ops:mine": "node apps/worker/dist/cli/producer-mine.js",
@@ -51,6 +52,7 @@
     "ops:pipeline": "node apps/worker/dist/cli/pipeline-check.js",
     "ops:restore-missing": "node apps/worker/dist/cli/restore-missing.js",
     "ops:undo-merge": "node apps/worker/dist/cli/undo-merge.js",
+    "ops:price-audit": "node apps/worker/dist/cli/price-audit.js",
     "ops:wine-report": "node apps/worker/dist/cli/wine-report.js",
     "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts"
   },

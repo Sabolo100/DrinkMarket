@@ -106,11 +106,27 @@ function imageOf(v: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * A schema.org valodi ajanlat-tipusai.
+ *
+ * SZANDEKOSAN nem szerepel itt az `OfferShippingDetails`: az szallitasi
+ * feltetel, nem ajanlat. A `freeShippingThreshold` mezoje eppen az a szam,
+ * ami a legtobb hamis armegallapitas mogott all.
+ */
+const OFFER_TYPES = new Set(['Offer', 'AggregateOffer', 'OfferForPurchase', 'OfferForLease']);
+
 function parseOffer(node: unknown): JsonLdOffer | null {
   if (!node || typeof node !== 'object') return null;
   const o = node as Record<string, unknown>;
   const types = typeOf(node);
-  if (types.length && !types.some((t) => /Offer/i.test(t))) return null;
+  // A `/Offer/i` TUL TAG volt: illeszkedik az `OfferShippingDetails`-re is,
+  // vagyis egy szallitasi node ajanlatkent kerulhetett be. Egy ilyen node
+  // `freeShippingThreshold`-ja pedig pontosan az a szam, amit sosem szabad
+  // termekarnak venni.
+  //
+  // A schema.org valodi ajanlat-tipusai zart halmazt alkotnak, tehat itt
+  // nincs szukseg mintara.
+  if (types.length && !types.some((t) => OFFER_TYPES.has(t.replace(/^.*\//, '')))) return null;
 
   const specs: JsonLdOffer['priceSpecification'] = [];
   const rawSpec = o['priceSpecification'];

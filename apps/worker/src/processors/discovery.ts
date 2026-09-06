@@ -23,6 +23,7 @@ import { raiseAlert, runShopQualityGate } from '../lib/publish.js';
 import { getSettings, getTaxonomy, loadShop, resolversFor } from '../lib/shop.js';
 import { saveArtifact } from '../lib/artifacts.js';
 import { enqueueFromWorker } from '../lib/queue-client.js';
+import { auditShopPrices } from '../lib/price-audit.js';
 
 export interface DiscoveryPayload {
   shopId: string;
@@ -386,6 +387,12 @@ export async function processDiscovery(job: Job<DiscoveryPayload>, config: Worke
           ]),
         ],
       );
+
+      // Ha a bolt termekeinek tulnyomo resze UGYANAZT az arat kapta, az nem
+      // ar. A szovegszurok mindig egy lepessel a valosag mogott jarnak - ez a
+      // szabaly az EREDMENYT nezi, tehat fuggetlen a kinyeresi uttol es a
+      // bolt sablonjatol.
+      await auditShopPrices(shopId).catch(() => null);
 
       // A visszalepes szamitasa. A `blocked` forrasnal a szokasos kozon FELUL
       // varunk: ha a webshop mar elutasit minket, az azonnali ujraprobalas
