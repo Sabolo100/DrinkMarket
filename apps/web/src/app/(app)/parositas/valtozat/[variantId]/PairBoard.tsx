@@ -193,13 +193,27 @@ export function PairBoard({ cases, cheapest, canonical, reasonLabels, csrfToken,
                   {c.shop_name ?? c.shop_key}
                 </div>
                 <div className="row-tight" style={{ justifyContent: 'space-between' }}>
-                  <span className="pair-price">{ft(c.price_huf)}</span>
+                  <span
+                    className="pair-price"
+                    title={c.comparable === false
+                      ? String(c.not_comparable_reason ?? 'Ez az ertek nem osszehasonlithato ar.')
+                      : undefined}
+                  >
+                    {ft(c.price_huf)}
+                  </span>
                   {delta !== null && delta !== 0 && (
                     <span className="freshness" style={{ color: delta > 0 ? 'var(--ink-4)' : 'var(--verdigris)' }}>
                       {delta > 0 ? '+' : ''}{delta}%
                     </span>
                   )}
                 </div>
+                {/* A nema gondolatjel nem mondja meg, hogy nincs ar, vagy hogy
+                    van, csak nem hihetunk neki. A donteshez ez kulonbseg. */}
+                {c.comparable === false && (
+                  <div className="freshness" style={{ color: 'var(--brass)' }}>
+                    az ar nem osszehasonlítható
+                  </div>
+                )}
                 <div className="pair-name">{c.raw_name}</div>
 
                 {diffs.length > 0 && (

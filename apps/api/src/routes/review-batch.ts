@@ -128,14 +128,18 @@ export async function reviewBatchRoutes(app: FastifyInstance, config: AppConfig)
     const verified = await query(
       `SELECT sl.id, sl.raw_name, sl.canonical_url, sl.image_url,
               s.key AS shop_key, s.name AS shop_name, s.brand_color,
-              o.selected_comparable_price_huf AS price_huf, o.observed_at
+              -- Egy nem osszehasonlithato ar NEM ar. Ha nyersen adnank at, a
+              -- felulet valodi arkent mutatna, es arkulonbseget is szamolna
+              -- belole - a fantom 15 000 Ft-bol igy lett "+711%".
+              CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf,
+              o.comparable, o.not_comparable_reason, o.observed_at
          FROM match_relations mr
          JOIN source_listings sl ON sl.id = mr.source_listing_id
          JOIN shops s ON s.id = mr.shop_id
          LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id
         WHERE mr.canonical_variant_id = $1
           AND mr.status = 'verified' AND mr.valid_to IS NULL
-        ORDER BY o.selected_comparable_price_huf NULLS LAST`,
+        ORDER BY price_huf NULLS LAST`,
       [variantId],
     );
 
@@ -150,7 +154,8 @@ export async function reviewBatchRoutes(app: FastifyInstance, config: AppConfig)
               sl.vintage_value, sl.volume_ml, sl.pack_count, sl.packaging_type,
               sl.abv_percent, sl.extraction_quality, sl.colour,
               s.id AS shop_id, s.key AS shop_key, s.name AS shop_name, s.brand_color,
-              o.selected_comparable_price_huf AS price_huf,
+              CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf,
+              o.comparable, o.not_comparable_reason,
               o.availability_status, o.observed_at,
               g.names AS grape_names
          FROM review_cases rc
@@ -165,7 +170,7 @@ export async function reviewBatchRoutes(app: FastifyInstance, config: AppConfig)
          ) g ON true
         WHERE rc.canonical_variant_id = $1
           AND rc.status IN ('open','in_progress')
-        ORDER BY o.selected_comparable_price_huf NULLS LAST`,
+        ORDER BY price_huf NULLS LAST`,
       [variantId],
     );
 

@@ -638,7 +638,7 @@ export async function evaluateListingForClustering(opts: {
             sl.puttony, sl.abv_percent, sl.gtin_normalized,
             sl.colour, sl.region, sl.grape_varieties,
             sl.wine_style_id, sl.vineyard_id, sl.wine_region_id, sl.grape_signature,
-            slg.ids AS grape_ids, o.selected_comparable_price_huf AS price_huf,
+            slg.ids AS grape_ids, CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf,
             pr.canonical_name AS producer_name, br.canonical_name AS brand_name
        FROM source_listings sl
        JOIN shops s ON s.id = sl.shop_id

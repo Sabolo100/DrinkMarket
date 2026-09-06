@@ -169,7 +169,13 @@ export default async function CatalogPage({
                         {huf(l['price_huf'] as number)}
                       </span>
                       {l['comparable'] === false && (
-                        <div className="cell-note" style={{ color: 'var(--brass)' }}>
+                        // Az indok nelkul ez a felirat csak annyit mond, hogy
+                        // "valami baj van" - es nem derul ki, hogy egy futtatas
+                        // hatott-e. Az ok mindig a sorral egyutt erkezik.
+                        <div
+                          className="cell-note" style={{ color: 'var(--brass)' }}
+                          title={String(l['not_comparable_reason'] ?? 'Nincs rogzitett indok.')}
+                        >
                           nem összehasonlítható
                         </div>
                       )}

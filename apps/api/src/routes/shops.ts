@@ -179,7 +179,7 @@ export async function shopRoutes(app: FastifyInstance, config: AppConfig): Promi
                 sl.availability_status, sl.first_seen_at, sl.last_seen_at, sl.last_checked_at,
                 pc.key AS category_key, pc.name_hu AS category_name,
                 o.selected_comparable_price_huf AS price_huf, o.regular_price_huf,
-                o.price_type, o.comparable, o.observed_at,
+                o.price_type, o.comparable, o.not_comparable_reason, o.observed_at,
                 mr.canonical_variant_id, mr.status AS match_status, cv.canonical_display_name
            FROM source_listings sl
            LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id

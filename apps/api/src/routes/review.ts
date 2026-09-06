@@ -161,7 +161,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
                   sl.vintage_value, sl.volume_ml, sl.pack_count, sl.packaging_type,
                   sl.extraction_quality, sl.evidence,
                   s.key AS shop_key, s.name AS shop_name, s.brand_color,
-                  o.selected_comparable_price_huf AS price_huf, o.observed_at,
+                  CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf, o.observed_at,
                   mr.status, mr.decision_origin
              FROM match_relations mr
              JOIN source_listings sl ON sl.id = mr.source_listing_id
@@ -205,7 +205,7 @@ export async function reviewRoutes(app: FastifyInstance, config: AppConfig): Pro
                 sl.vintage_value, sl.volume_ml, sl.pack_count, sl.packaging_type,
                 sl.abv_percent, sl.gtin, sl.extraction_quality, sl.evidence,
                 s.key AS shop_key, s.name AS shop_name, s.brand_color,
-                o.selected_comparable_price_huf AS price_huf, o.observed_at, o.in_stock
+                CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf, o.observed_at, o.in_stock
            FROM source_listings sl
            JOIN shops s ON s.id = sl.shop_id
            LEFT JOIN offer_observations o ON o.id = sl.latest_offer_id

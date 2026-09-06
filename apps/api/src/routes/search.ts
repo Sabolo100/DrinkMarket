@@ -75,7 +75,7 @@ export async function searchRoutes(app: FastifyInstance, _config: AppConfig): Pr
               sl.image_url, sl.vintage_value, sl.volume_ml, sl.cluster_status,
               s.name AS shop_name, s.key AS shop_key, s.brand_color,
               mr.canonical_variant_id,
-              o.selected_comparable_price_huf AS price_huf,
+              CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf,
               similarity(sl.normalized_name, $1)::float AS score
          FROM source_listings sl
          JOIN shops s ON s.id = sl.shop_id

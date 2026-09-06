@@ -43,6 +43,8 @@ export interface PairCase {
   shop_name: string | null;
   brand_color: string | null;
   price_huf: number | null;
+  comparable: boolean | null;
+  not_comparable_reason: string | null;
   availability_status: string | null;
   observed_at: string | null;
 }
@@ -70,6 +72,8 @@ interface Verified {
   shop_name: string;
   brand_color: string | null;
   price_huf: number | null;
+  comparable: boolean | null;
+  not_comparable_reason: string | null;
 }
 
 export default async function VariantReviewPage({

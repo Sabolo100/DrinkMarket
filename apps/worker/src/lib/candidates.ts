@@ -84,7 +84,10 @@ interface ListingRow {
 const LISTING_SELECT = `
   SELECT sl.id, sl.shop_id, s.key AS shop_key, sl.raw_name, sl.normalized_name,
          sl.canonical_url, sl.image_url, sl.identity_hash, sl.extraction_quality, sl.evidence,
-         o.selected_comparable_price_huf AS price_huf,
+         -- A motor ar-ore ebbol dolgozik. Egy nem osszehasonlithato ar hamis
+         -- aranyt adna, ami valodi egyezeseknel tiltana le az automatikus
+         -- jovahagyast - a "nem tudjuk" nem lehet gyanu.
+         CASE WHEN o.comparable THEN o.selected_comparable_price_huf END AS price_huf,
          pc.key AS category_key,
          sl.producer_id, sl.brand_id, sl.expression, sl.vintage_value, sl.vintage_status,
          sl.age_statement_years, sl.volume_ml, sl.pack_count, sl.packaging_type,
