@@ -54,7 +54,9 @@
     "ops:undo-merge": "node apps/worker/dist/cli/undo-merge.js",
     "ops:price-audit": "node apps/worker/dist/cli/price-audit.js",
     "ops:wine-report": "node apps/worker/dist/cli/wine-report.js",
-    "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts"
+    "producer:mine": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/producer-mine.ts",
+    "ops:relink-listings": "node apps/worker/dist/cli/relink-listings.js",
+    "match:relink-listings": "tsx --tsconfig tsconfig.dev.json apps/worker/src/cli/relink-listings.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
