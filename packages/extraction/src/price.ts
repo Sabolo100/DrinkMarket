@@ -59,8 +59,28 @@ const UNIT_PRICE_HINTS = /\b(egysegar|egyseg\s*ar|\/\s*l\b|\/\s*liter|ft\s*\/\s*
  *
  * A vizsgalat `searchNorm`-mal fut, tehat ekezet nelkuli alakra illeszkedik.
  */
-const NOT_A_PRICE_HINTS =
-  /(ingyen|dijmentes|szallitas|kiszallitas|utanvet|csomagolas|kosar|kupon|utalvany)|(\bfelett\b|\bfeletti\b|\bfolott\b|\bfolotti\b|\bminimum\b|\bmin\.\s|\btol\b)/;
+const FRAME_WORDS =
+  /ingyen|dijmentes|szallitas|kiszallitas|utanvet|csomagolas|kosar|kupon|utalvany/;
+
+/** A kuszobot a szam ELOTT bevezeto szavak. */
+const MIN_WORDS = /\bminimum\b|\bmin\.\s/;
+
+/**
+ * A kuszob zaroszavai. Ezek CSAK a szam MOGOTT allva jelentenek valamit:
+ * "15 000 Ft felett".
+ *
+ * Elotte allva viszont artalmatlanok - a "18 ev felett! 5 200 Ft" oldalon a
+ * "felett" a korhatarhoz tartozik, nem az arhoz. Ezert a szam elotti es
+ * utani kornyezetet KULON szabaly vizsgalja.
+ */
+const THRESHOLD_QUALIFIERS = /\bfelett\b|\bfeletti\b|\bfolott\b|\bfolotti\b|\btol\b/;
+
+const NOT_A_PRICE_HINTS = new RegExp(
+  `(${FRAME_WORDS.source})|(${THRESHOLD_QUALIFIERS.source}|${MIN_WORDS.source})`,
+);
+
+/** A szam ELOTT allo szovegben csak ezek arulkodnak keretrol. */
+const PRECEDING_HINTS = new RegExp(`${FRAME_WORDS.source}|${MIN_WORDS.source}`);
 
 /**
  * Ar kinyerese a rendelkezesre allo forrasokbol, prioritasi sorrendben:
@@ -228,6 +248,61 @@ interface DomPriceResult {
 
 const PRICE_TEXT_RE = /(\d[\d\s., ]{1,14})\s*(?:Ft|HUF|forint)\b/gi;
 
+/**
+ * Blokkhatarok: ameddig az ember EGYUTT lat egy feliratot.
+ *
+ * Egy `</div>` mogott mar egy masik uzenet all - a szam kornyezete ott
+ * veget er.
+ */
+const BLOCK_BOUNDARY =
+  /<\/?(?:div|p|li|ul|ol|dl|dt|dd|td|th|tr|table|section|article|header|footer|nav|aside|main|form|figure|blockquote|h[1-6]|br|hr)\b[^>]*>/gi;
+
+/**
+ * Az elem ELOTT allo szoveg, a sajat blokkjan belul.
+ *
+ * Ez zarja be a nyitva maradt ajtot. A keret szavai gyakran az elemen KIVUL
+ * allnak:
+ *
+ *   <div class="ship">Ingyenes szallitas <span class="price">15 000 Ft</span> felett</div>
+ *
+ * A jelolt itt a span, aminek a SAJAT szovege csak "15 000 Ft" - a
+ * "szallitas" es a "felett" a szuloben van. Amig csak az elem sajat
+ * szoveget neztuk, ez a kuszob akadaly nelkul atjutott.
+ *
+ * A blokkhataron viszont NEM lepunk at. Egy szomszedos szallitasi jelveny
+ * kulonben kilone a mellette allo VALODI arat - abbol pedig hianyzo ar
+ * lenne ott, ahol van ar.
+ */
+function blockTextBefore(html: string, start: number): string {
+  const chunk = html.slice(Math.max(0, start - 600), start);
+  let cut = 0;
+  BLOCK_BOUNDARY.lastIndex = 0;
+  for (let m = BLOCK_BOUNDARY.exec(chunk); m; m = BLOCK_BOUNDARY.exec(chunk)) {
+    cut = m.index + m[0].length;
+  }
+  let text = stripTags(chunk.slice(cut));
+
+  // Ha elottunk MAR allt egy ar, az azt keretezo szavak AHHOZ tartoznak, nem
+  // hozzank. E nelkul egy szallitasi felirat mellett allo valodi termekar is
+  // kiesne - a hianyzo ar pedig ott, ahol van ar, ugyanolyan hiba.
+  PRICE_TEXT_RE.lastIndex = 0;
+  let after = -1;
+  for (let m = PRICE_TEXT_RE.exec(text); m; m = PRICE_TEXT_RE.exec(text)) {
+    after = m.index + m[0].length;
+  }
+  if (after >= 0) text = text.slice(after);
+
+  return text.slice(-120);
+}
+
+/** Az elem UTAN allo szoveg, ugyanazon a blokkon belul. */
+function blockTextAfter(html: string, end: number): string {
+  const chunk = html.slice(end, end + 600);
+  BLOCK_BOUNDARY.lastIndex = 0;
+  const m = BLOCK_BOUNDARY.exec(chunk);
+  return stripTags(m ? chunk.slice(0, m.index) : chunk).slice(0, 40);
+}
+
 export function extractDomPrices(html: string): DomPriceResult {
   const out: DomPriceResult = {
     current: null, currentRaw: null, regular: null, regularRaw: null,
@@ -256,7 +331,15 @@ export function extractDomPrices(html: string): DomPriceResult {
     // Az oldal kerete (szallitasi kuszob, kosarertek) nem ar. Fontos, hogy ez
     // MAR ITT kiessen: kulonben jeloltnek szamitana, es elnyelne a vegso
     // tartalekot, amivel a valodi ar sosem kerulne elo.
-    if (NOT_A_PRICE_HINTS.test(searchNorm(text))) continue;
+    //
+    // A keret szavai gyakran az elemen KIVUL allnak, ezert a sajat blokkjaig
+    // korbenezunk - de a blokkhataron nem lepunk at.
+    if (NOT_A_PRICE_HINTS.test(searchNorm(`${classes} ${text}`))) continue;
+    if (PRECEDING_HINTS.test(searchNorm(blockTextBefore(html, el.start)))) continue;
+    // A szam MOGOTT viszont csak a kuszob zaroszavai szamitanak. Egy ar alatt
+    // allo "Ingyenes szallitas" jelveny szabalyos - az nem teszi kuszobbe a
+    // felette allo termekarat.
+    if (THRESHOLD_QUALIFIERS.test(searchNorm(blockTextAfter(html, el.end)))) continue;
     candidates.push({
       value: Math.round(value), raw: m[0] ?? '', context: text, classes,
       weight: classifyWeight(classes, text, el.tag),

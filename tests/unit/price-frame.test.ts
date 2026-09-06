@@ -81,3 +81,58 @@ describe('a szabalyos arat nem rontja el', () => {
     expect(r.current).toBe(5200);
   });
 });
+
+/**
+ * A masodik szivargas: a keret szavai az elemen KIVUL.
+ *
+ * A winehub 3 661 termeke igy kapott 15 000 Ft-ot. A szuro csak az elem
+ * SAJAT szoveget nezte, a szallitasi mondat viszont a szuloben allt, es a
+ * szam egy beagyazott spanban - abban mar csak a puszta "15.000 Ft".
+ *
+ * Ugyanez a szabaly nem lohet ki valodi arat: egy termekar alatt allo
+ * "Ingyenes szallitas" jelveny teljesen szabalyos, es a szomszed elem
+ * kuszobe sem tartozik hozzank.
+ */
+describe('a keret az elemen kivul is lehet', () => {
+  it('a szam beagyazott spanban, a mondat a szuloben', () => {
+    const r = extractDomPrices(
+      '<div class="shipping-banner">Ingyenes szállítás'
+      + ' <span class="price">15.000 Ft</span> felett</div>',
+    );
+    expect(r.current).toBeNull();
+  });
+
+  it('kozbeeso inline tagek sem rejtik el a keretet', () => {
+    const r = extractDomPrices(
+      '<div class="ship"><b>Ingyenes kiszállítás</b>'
+      + ' <span class="amount">15 000 Ft</span> <i>felett</i></div>',
+    );
+    expect(r.current).toBeNull();
+  });
+
+  it('a kuszob mogotti VALODI ar megmarad', () => {
+    const r = extractDomPrices(
+      '<div class="shipping-banner">Ingyenes szállítás'
+      + ' <span class="price">15.000 Ft</span> felett</div>'
+      + '<span class="price product-price">4 990 Ft</span>',
+    );
+    expect(r.current).toBe(4990);
+  });
+
+  it('az ar ALATT allo szallitasi jelveny nem teszi kuszobbe', () => {
+    // A "szallitas" szo a szam MOGOTT mar egy kovetkezo felirat is lehet.
+    // Ha ez kilone az arat, hianyzo arat kapnank ott, ahol van ar.
+    const r = extractDomPrices(
+      '<span class="price">5 200 Ft</span>'
+      + '<div class="badge">Ingyenes szállítás 15 000 Ft felett</div>',
+    );
+    expect(r.current).toBe(5200);
+  });
+
+  it('a "felett" a szam MOGOTT dont, elotte artalmatlan', () => {
+    const r = extractDomPrices(
+      '<div><span class="price">15 000 Ft</span> felett ingyenes a szállítás</div>',
+    );
+    expect(r.current).toBeNull();
+  });
+});
