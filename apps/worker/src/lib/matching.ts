@@ -334,6 +334,56 @@ export async function persistDecision(
 
     // ── Automatikusan igazolt par ─────────────────────────────────────────
     if (decision.status === 'auto_verified' && decision.sourceListingId) {
+      // Egy listinghez EGYETLEN igazolt kanonikus par tartozhat
+      // (`match_relations_one_verified_per_listing`). Az alabbi ON CONFLICT
+      // csak a PAR egyedisegere szol - ha ugyanaz a listing egy MASIK
+      // valtozathoz mar igazolt, az az indexbe utkozik, es a job elszall.
+      //
+      // Elesben ez allitotta le a teljes parositasi lancot: 2 953 bukott
+      // job, a sopres pedig determinisztikus sorrendben mindig ugyanazt a
+      // 300-at probalta ujra. A sor eleje vegleg bedugult.
+      //
+      // Ez nem beszurasi, hanem DONTESI helyzet: ket kanonikus bor kereszteli
+      // ugyanazt a bolti terméket. Tipikusan ket duplikalt kanonikus tetel.
+      const elozo = await client.query<{
+        id: string; variant_id: string; locked: boolean; origin: string;
+      }>(
+        `SELECT id::text, canonical_variant_id::text AS variant_id,
+                locked_by_human AS locked, decision_origin AS origin
+           FROM match_relations
+          WHERE source_listing_id = $1 AND status = 'verified' AND valid_to IS NULL
+          FOR UPDATE`,
+        [decision.sourceListingId],
+      );
+      const utkozo = elozo.rows[0];
+
+      if (utkozo && utkozo.variant_id !== variant.id) {
+        if (utkozo.locked || utkozo.origin === 'human') {
+          // Emberi dontes all. A gep nem irja felul - megjeloli es tovabblep.
+          // A `drifted` allapot egyben ki is veszi a listinget a sopresbol,
+          // igy egyetlen megoldatlan eset sem tudja megallitani a tobbit.
+          await client.query(
+            `UPDATE source_listings SET cluster_status = 'drifted' WHERE id = $1`,
+            [decision.sourceListingId],
+          );
+          logger.warn('matching.verified_conflict_human', {
+            sourceListingId: decision.sourceListingId,
+            existingVariantId: utkozo.variant_id, proposedVariantId: variant.id,
+            hint: 'Az ember dontese all. Valoszinuleg ket duplikalt kanonikus bor.',
+          });
+          return { reviewCaseId: null, matchRelationId: null };
+        }
+        // Sajat korabbi AUTOMATIKUS dontes: azt a gep felulbiralhatja.
+        // Nem toroljuk - lezarjuk, tehat a tortenet megmarad.
+        await client.query(
+          `UPDATE match_relations
+              SET valid_to = now(), updated_at = now(),
+                  drift_reason = 'Ujraertekeles masik kanonikus valtozatra kotötte.'
+            WHERE id = $1`,
+          [utkozo.id],
+        );
+      }
+
       const relation = await client.query<{ id: string }>(
         `INSERT INTO match_relations
            (canonical_variant_id, source_listing_id, shop_id, status, decision_origin,

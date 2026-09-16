@@ -219,6 +219,18 @@ async function main(): Promise<void> {
           WHERE canonical_variant_id = $1 AND shop_id = $2`,
         [variantId, shop.id, j.newListingId],
       );
+
+      // ES a listing allapota is kovesse: aminek van igazolt kanonikus parja,
+      // az KLASZTEREZETT. Ez elsore konyvelesi reszletnek tunt, es kimaradt -
+      // a kovetkezmenye viszont az egesz parositasi lanc leallasa lett.
+      // A 406 atmentett sor `unclustered` maradt, a sopres elovette oket,
+      // a motor masik valtozatra jutott, es a beszuras indexbe utkozott.
+      // Mivel a rendezes determinisztikus, ugyanazok jottek elo minden
+      // korben: a sor eleje bedugult, mogotte tizezer tetel allt.
+      await client.query(
+        `UPDATE source_listings SET cluster_status = 'clustered' WHERE id = $1`,
+        [j.newListingId],
+      );
     });
     atmentve++;
   }

@@ -67,6 +67,17 @@ export async function processClusterSweep(
         WHERE sl.listing_status = 'active'
           AND sl.cluster_status = 'unclustered'
           AND s.active AND NOT s.policy_disabled
+          -- Aminek MAR van ervenyes igazolt kanonikus parja, azon nincs mit
+          -- klaszterezni. A cluster_status ilyenkor csak konyvelesi
+          -- lemaradas - de a kovetkezmenye sulyos volt: a motor ujra dontott,
+          -- masik valtozatra jutott, es az egy-igazolt-par-listingenkent
+          -- indexbe utkozott. A job elszallt, a sor allapota nem valtozott,
+          -- es a determinisztikus rendezes miatt a kovetkezo korben ugyanaz
+          -- jott elo. A sor eleje igy vegleg bedugult.
+          AND NOT EXISTS (
+            SELECT 1 FROM match_relations mr
+             WHERE mr.source_listing_id = sl.id
+               AND mr.status = 'verified' AND mr.valid_to IS NULL)
           ${filters.join(' ')}
         ORDER BY (sl.producer_id IS NULL), sl.id
         LIMIT $${params.length}`,
