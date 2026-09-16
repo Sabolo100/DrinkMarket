@@ -266,7 +266,10 @@ async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
          JOIN shops s ON s.id = sl.shop_id
         WHERE sl.listing_status = 'active'
           AND sl.cluster_status = 'unclustered'
-          AND s.active AND NOT s.policy_disabled`,
+          AND s.active AND NOT s.policy_disabled
+          -- A sopres ezeket kihagyja. Ha itt beleszamitanank oket, az utemezo
+          -- percenkent inditana egy sopreset, ami egyetlen sort sem talal.
+          AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)`,
     );
     if ((unclustered[0]?.count ?? 0) > 0) {
       const ok = await schedule({

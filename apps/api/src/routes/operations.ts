@@ -167,7 +167,8 @@ export async function operationRoutes(app: FastifyInstance, config: AppConfig): 
          (SELECT count(*)::int FROM source_listings sl
             JOIN shops s ON s.id = sl.shop_id
            WHERE sl.listing_status = 'active' AND sl.cluster_status = 'unclustered'
-             AND s.active AND NOT s.policy_disabled)                          AS unclustered,
+             AND s.active AND NOT s.policy_disabled
+             AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)) AS unclustered,
          -- PARKOLO: nem igazolt par, aminek az ujravizsgalata a jovoben van.
          -- Ez az a halmaz, amit a "Parositasok ujraertekelese" elorehoz.
          (SELECT count(*)::int FROM variant_shop_status

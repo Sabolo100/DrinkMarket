@@ -158,7 +158,8 @@ async function main(): Promise<void> {
             (SELECT count(*)::int FROM source_listings WHERE listing_status = 'active') AS listing,
             (SELECT count(*)::int FROM source_listings sl JOIN shops s ON s.id = sl.shop_id
               WHERE sl.listing_status = 'active' AND sl.cluster_status = 'unclustered'
-                AND s.active AND NOT s.policy_disabled) AS unclustered`,
+                AND s.active AND NOT s.policy_disabled
+                AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)) AS unclustered`,
   );
   const a = alap[0];
   console.log(`  aktiv webshop                              ${String(a?.boltok ?? 0).padStart(7)}`);

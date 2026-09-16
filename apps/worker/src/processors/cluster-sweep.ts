@@ -101,7 +101,10 @@ export async function processClusterSweep(
          JOIN shops s ON s.id = sl.shop_id
         WHERE sl.listing_status = 'active'
           AND sl.cluster_status = 'unclustered'
-          AND s.active AND NOT s.policy_disabled`,
+          AND s.active AND NOT s.policy_disabled
+          -- UGYANAZ a halmaz, amit a fenti valogatas lat. Ha a ketto eltér,
+          -- a szam egy padlon megall, es soha nem megy le nullara.
+          AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)`,
     );
 
     logger.info('cluster_sweep.done', {
