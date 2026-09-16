@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { MatchStatusChip, ShopDot } from '@/components/Signals';
 import { apiSafe, currentSession, ago, dateTime, num } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 import { RecheckBar } from './RecheckBar';
 
 export const dynamic = 'force-dynamic';
@@ -201,6 +202,9 @@ export default async function ReviewListPage({
           </table>
         </div>
       )}
+
+      <Pager basePath="/parositas" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
 }

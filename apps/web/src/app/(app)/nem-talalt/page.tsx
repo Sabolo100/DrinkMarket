@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { HealthChip, MatchStatusChip, ShopDot } from '@/components/Signals';
 import { apiSafe, ago, dateTime, num, volume } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 
 export const dynamic = 'force-dynamic';
 
@@ -213,6 +214,9 @@ export default async function UnmatchedPage({
           </table>
         </div>
       )}
+
+      <Pager basePath="/nem-talalt" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
 }

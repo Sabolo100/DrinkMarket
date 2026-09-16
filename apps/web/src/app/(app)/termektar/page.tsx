@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { ShopDot } from '@/components/Signals';
 import { apiSafe, ago, huf, num, volume } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 
 export const dynamic = 'force-dynamic';
 
@@ -206,22 +207,10 @@ export default async function CatalogPage({
         </div>
       )}
 
-      {data.total > data.pageSize && (
-        <div className="pagination">
-          <span className="muted num">
-            {(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)} / {num(data.total)}
-          </span>
-          <div className="spacer" />
-          {data.page > 1 && (
-            <Link className="btn btn-sm"
-                  href={`/termektar?shopId=${selectedShop.id}&page=${data.page - 1}`}>← Előző</Link>
-          )}
-          {data.hasMore && (
-            <Link className="btn btn-sm"
-                  href={`/termektar?shopId=${selectedShop.id}&page=${data.page + 1}`}>Következő →</Link>
-          )}
-        </div>
-      )}
+      {/* A regi lapozo csak a boltot vitte tovabb: a masodik oldalra lepve
+          a nev-, klaszter-, kategoria- es keszletszuro elveszett. */}
+      <Pager basePath="/termektar" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
 }

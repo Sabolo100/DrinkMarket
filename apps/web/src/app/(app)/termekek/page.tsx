@@ -3,6 +3,7 @@ import { PageHead } from '@/components/Shell';
 import { SpreadRail } from '@/components/SpreadRail';
 import { DataQualityChip, ShopDot } from '@/components/Signals';
 import { apiSafe, ago, huf, num, pct, volume } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 
 export const dynamic = 'force-dynamic';
 
@@ -166,25 +167,8 @@ export default async function ProductsPage({
         </div>
       )}
 
-      {data.total > data.pageSize && (
-        <div className="pagination">
-          <span className="muted num">
-            {(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)} / {num(data.total)}
-          </span>
-          <div className="spacer" />
-          {data.page > 1 && <PageLink sp={sp} page={data.page - 1} label="← Előző" />}
-          {data.hasMore && <PageLink sp={sp} page={data.page + 1} label="Következő →" />}
-        </div>
-      )}
+      <Pager basePath="/termekek" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
-}
-
-function PageLink({
-  sp, page, label,
-}: { sp: Record<string, string | string[] | undefined>; page: number; label: string }) {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) if (typeof v === 'string' && v) qs.set(k, v);
-  qs.set('page', String(page));
-  return <Link className="btn btn-sm" href={`/termekek?${qs.toString()}`}>{label}</Link>;
 }

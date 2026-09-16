@@ -1,5 +1,6 @@
 import { PageHead } from '@/components/Shell';
 import { apiSafe, dateTime, num } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 
 export const dynamic = 'force-dynamic';
 
@@ -166,6 +167,9 @@ export default async function AuditPage({
           </table>
         </div>
       )}
+
+      <Pager basePath="/auditnaplo" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
 }

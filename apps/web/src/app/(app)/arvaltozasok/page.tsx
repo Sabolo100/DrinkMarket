@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { PageHead } from '@/components/Shell';
 import { DeltaBadge, ShopDot } from '@/components/Signals';
 import { apiSafe, dateTime, huf, num } from '@/lib/api';
+import { Pager } from '@/components/Pager';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,6 +145,9 @@ export default async function ChangesPage({
           </table>
         </div>
       )}
+
+      <Pager basePath="/arvaltozasok" sp={sp} page={data.page} pageSize={data.pageSize}
+             total={data.total} hasMore={data.hasMore} />
     </>
   );
 }
