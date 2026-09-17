@@ -21,6 +21,15 @@ declare module 'fastify' {
 
 const PUBLIC_PATHS = new Set([
   '/api/v1/auth/login',
+  // A meghivo elfogadasa EPP annak kell, akinek meg nincs fiokja - tehat
+  // munkamenete sem. Enelkul a vegpont 401-et adott, es a meghivasos
+  // hozzaferes vegponttol vegpontig soha nem mukodott.
+  //
+  // Nyilvanosnak biztonsagos: a keres maga a meghivo tokennel hitelesit
+  // (192 bit veletlen, csak a hash-e tarolt, 7 napig el, egyszer
+  // hasznalhato). CSRF-kockazat sincs: aki a tokent ismeri, annak nem kell
+  // mas bongeszojet ravenni a hivasra.
+  '/api/v1/auth/accept-invite',
   '/api/v1/health',
   '/api/v1/ready',
 ]);

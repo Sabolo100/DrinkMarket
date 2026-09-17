@@ -198,6 +198,42 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig): Promi
     };
   });
 
+  // Uj meghivo link egy MEG NEM aktivalt felhasznalonak.
+  //
+  // A meghivo 7 napig el. Ha lejar, ugyanarra az e-mailre nem lehet ujat
+  // kuldeni (USER_EXISTS) - vagyis enelkul egy elmulasztott link vegleg
+  // bezarta volna az ajtot az ugyfel elott.
+  app.post('/users/:id/reinvite', async (req) => {
+    const actor = requireRole(req.user, 'admin');
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+
+    const target = await queryOne<{ email: string; status: string }>(
+      'SELECT email, status FROM users WHERE id = $1', [id],
+    );
+    if (!target) throw new AppError('NOT_FOUND', 'A felhasznalo nem talalhato.', 404);
+    if (target.status !== 'invited') {
+      throw new AppError('ALREADY_ACTIVE', 'Ez a fiok mar aktiv - uj meghivo nem kell.', 409);
+    }
+
+    const invite = generateInviteToken();
+    await execute(
+      `UPDATE users SET invite_token_hash = $2, invite_expires_at = now() + interval '7 days'
+        WHERE id = $1`,
+      [id, invite.hash],
+    );
+    await audit({
+      actorUserId: actor.id, action: 'user.reinvited', entityType: 'user', entityId: id,
+      summary: `Uj meghivo link: ${target.email}`, correlationId: req.correlationId,
+    });
+
+    // A korabbi link ezzel ervenytelenne valt: a hash felulirodott.
+    return {
+      id,
+      inviteUrl: `${config.APP_BASE_URL}/meghivo?token=${invite.token}`,
+      expiresInDays: 7,
+    };
+  });
+
   app.patch('/users/:id/role', async (req) => {
     const actor = requireRole(req.user, 'admin');
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);

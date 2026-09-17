@@ -70,6 +70,7 @@ export function Shell({ user, csrfToken, shops, counts, children }: Props) {
             <div className="label">Rendszer</div>
             <NavLink href="/folyamatok">Folyamatkezelés</NavLink>
             <NavLink href="/beallitasok">Beállítások</NavLink>
+            {user.role === 'admin' && <NavLink href="/felhasznalok">Felhasználók</NavLink>}
             <NavLink href="/auditnaplo">Auditnapló</NavLink>
           </div>
         </nav>
