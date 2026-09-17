@@ -1033,3 +1033,21 @@ select {
   margin-top: var(--s-4);
   background: linear-gradient(to top, var(--paper) 70%, transparent);
 }
+
+/* ── Felugró magyarázó ablak (natív <dialog>) ─────────────────────────────
+   A natív elem adja a fókuszcsapdát és az Esc-re zárást; itt csak a
+   megjelenést kell megadni. A háttérre kattintást a komponens kezeli. */
+dialog.role-guide {
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-deep);
+  overflow: auto;
+}
+dialog.role-guide::backdrop {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}

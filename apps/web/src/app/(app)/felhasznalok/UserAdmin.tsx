@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { RoleGuideDialog, openRoleGuide } from './RoleGuide';
 
 export interface AdminUser {
   id: string;
@@ -17,10 +18,10 @@ export interface AdminUser {
 type Role = 'viewer' | 'reviewer' | 'catalog_manager' | 'source_manager' | 'admin';
 
 const ROLES: Array<{ key: Role; label: string; hint: string }> = [
-  { key: 'viewer', label: 'Megtekintő', hint: 'Mindent lát, de semmit nem módosít.' },
-  { key: 'reviewer', label: 'Ellenőr', hint: 'Párosításokat bírál el.' },
-  { key: 'catalog_manager', label: 'Katalóguskezelő', hint: 'Borászatokat hagy jóvá és von össze.' },
-  { key: 'source_manager', label: 'Forráskezelő', hint: 'Webshopokat és crawl-futásokat kezel.' },
+  { key: 'viewer', label: 'Megtekintő', hint: 'Az árakat, termékeket és párosításokat látja, de nem dönt.' },
+  { key: 'reviewer', label: 'Ellenőr', hint: 'Mint a Megtekintő, és a párosításokat is elbírálja.' },
+  { key: 'catalog_manager', label: 'Katalóguskezelő', hint: 'Borászatok, kanonikus termékek, import és folyamatok.' },
+  { key: 'source_manager', label: 'Forráskezelő', hint: 'Webshopok, crawl-futások, rendszerbeállítások.' },
   { key: 'admin', label: 'Adminisztrátor', hint: 'Mindenhez hozzáfér, felhasználókat is kezel.' },
 ];
 
@@ -48,6 +49,7 @@ export function UserAdmin({ users, csrfToken, selfId }: Props) {
   // A link CSAK most látszik: az API a tokent nem tárolja, később nem kérdezhető le.
   const [link, setLink] = useState<{ email: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const guideRef = useRef<HTMLDialogElement>(null);
 
   async function call(key: string, url: string, method: string, body?: unknown) {
     setBusy(key); setError(null);
@@ -122,6 +124,7 @@ export function UserAdmin({ users, csrfToken, selfId }: Props) {
 
   return (
     <div className="stack-4">
+      <RoleGuideDialog dialogRef={guideRef} />
       {/* ── Meghívás ─────────────────────────────────────────────────── */}
       <section className="callout" style={{ padding: 'var(--s-4)' }}>
         <p className="label" style={{ marginBottom: 10 }}>Új felhasználó meghívása</p>
@@ -146,9 +149,15 @@ export function UserAdmin({ users, csrfToken, selfId }: Props) {
             {busy === 'invite' ? 'Meghívás…' : 'Meghívó link készítése'}
           </button>
         </form>
-        {selectedHint && (
-          <p className="freshness muted" style={{ margin: '8px 0 0' }}>{roleLabel(role)}: {selectedHint}</p>
-        )}
+        <div className="row-tight" style={{ gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+          {selectedHint && (
+            <span className="freshness muted">{roleLabel(role)}: {selectedHint}</span>
+          )}
+          <button type="button" className="btn btn-sm btn-ghost"
+                  onClick={() => openRoleGuide(guideRef)}>
+            Mit jelentenek a szerepkörök?
+          </button>
+        </div>
       </section>
 
       {error && (
@@ -187,7 +196,16 @@ export function UserAdmin({ users, csrfToken, selfId }: Props) {
             <tr>
               <th>Név</th>
               <th>E-mail</th>
-              <th style={{ width: 190 }}>Szerepkör</th>
+              <th style={{ width: 190 }}>
+                Szerepkör{' '}
+                <button type="button" className="btn btn-sm btn-ghost"
+                        style={{ padding: '0 6px', minHeight: 0, lineHeight: 1.4 }}
+                        aria-label="A szerepkörök magyarázata"
+                        title="A szerepkörök magyarázata"
+                        onClick={() => openRoleGuide(guideRef)}>
+                  ?
+                </button>
+              </th>
               <th style={{ width: 120 }}>Állapot</th>
               <th style={{ width: 140 }}>Utolsó belépés</th>
               <th style={{ width: 170 }}></th>
