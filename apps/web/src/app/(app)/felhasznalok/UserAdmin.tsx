@@ -55,7 +55,10 @@ export function UserAdmin({ users, csrfToken, selfId }: Props) {
       const res = await fetch(url, {
         method,
         headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        // Torzs MINDIG kell: a Fastify 400-zal elutasitja az ures torzset, ha
+        // a content-type application/json. Az "Uj meghivo link" gomb pont
+        // torzs nelkul hivott - a valos API elleni proba fogta meg.
+        body: JSON.stringify(body ?? {}),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {

@@ -212,7 +212,8 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig): Promi
     );
     if (!target) throw new AppError('NOT_FOUND', 'A felhasznalo nem talalhato.', 404);
     if (target.status !== 'invited') {
-      throw new AppError('ALREADY_ACTIVE', 'Ez a fiok mar aktiv - uj meghivo nem kell.', 409);
+      // Aktiv VAGY felfuggesztett fiok: mindkettonek van mar jelszava.
+      throw new AppError('ALREADY_ACTIVE', 'Uj meghivo csak meg nem aktivalt fiokhoz kerheto.', 409);
     }
 
     const invite = generateInviteToken();
