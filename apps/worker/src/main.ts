@@ -12,7 +12,7 @@
 import { Worker, type Job, type Processor } from 'bullmq';
 import { closeDb, execute, initDb, query } from '@radovin/db';
 import { closeBrowser } from '@radovin/crawler-core';
-import { addMetricSink, configureLogger, logger } from '@radovin/observability';
+import { addMetricSink, buildInfo, configureLogger, logger } from '@radovin/observability';
 import { loadWorkerConfig, type WorkerConfig } from './config.js';
 import { closeWorkerQueues, workerRedis, type QueueName } from './lib/queue-client.js';
 import { processDiscovery, processFetchUrl, processHealthCheck } from './processors/discovery.js';
@@ -149,6 +149,7 @@ async function main(): Promise<void> {
   });
 
   logger.info('worker.starting', {
+    ...buildInfo(),
     mode: config.mode,
     httpConcurrency: config.httpConcurrency,
     browserConcurrency: config.browserConcurrency,

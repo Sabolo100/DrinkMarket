@@ -9,7 +9,7 @@ import type {
   Candidate, IdentityFields, MatchDecisionResult, MatchPolicy, MatchStatus,
 } from '@radovin/contracts';
 import { REASON_CODES, REASON_CODE_HU, emptyIdentityFields } from '@radovin/contracts';
-import { execute, query, queryOne, transaction } from '@radovin/db';
+import { execute, query, queryOne, transaction, type PoolClient } from '@radovin/db';
 import {
   decideMatch, resolveIdentityProfile, type CanonicalSide, type Taxonomy,
 } from '@radovin/domain';
@@ -263,6 +263,7 @@ export async function evaluateVariantForShop(opts: EvaluateOptions): Promise<Eva
     decision, variant, shopId, shopKey, policy,
     crawlRunId: opts.crawlRunId ?? null,
     candidates: generation.candidates,
+    origin: 'search',
   });
 
   // ── Keresesi memoria (spec 16.3) ────────────────────────────────────────
@@ -318,6 +319,12 @@ interface PersistDecisionOpts {
   policy: MatchPolicy;
   crawlRunId: string | null;
   candidates: Candidate[];
+  /**
+   * Honnan jott a kiertekeles. A `search` a (valtozat, bolt) parrol dont -
+   * a `cluster` egyetlen listingrol, es ezert NEM irhatja felul egy olyan
+   * par allapotat, amelyet egy masik listing mar igazolt.
+   */
+  origin: 'search' | 'cluster';
 }
 
 /**
@@ -327,7 +334,7 @@ interface PersistDecisionOpts {
 export async function persistDecision(
   opts: PersistDecisionOpts,
 ): Promise<{ reviewCaseId: string | null; matchRelationId: string | null }> {
-  const { decision, variant, shopId, policy } = opts;
+  const { decision, variant, shopId } = opts;
 
   return transaction(async (client) => {
     let matchRelationId: string | null = null;
@@ -406,43 +413,34 @@ export async function persistDecision(
       );
     }
 
-    // ── Dontesi rekord (audit) ────────────────────────────────────────────
-    const decisionRow = await client.query<{ id: string }>(
-      `INSERT INTO match_decisions
-         (match_relation_id, canonical_variant_id, source_listing_id, shop_id, status,
-          matcher_version, taxonomy_version, policy_version, candidate_sources,
-          candidate_ranks, field_results, hard_contradictions,
-          agreement_score, evidence_coverage, extraction_quality, retrieval_support,
-          top_margin, decision_strength, contradiction_count, negative_history,
-          reason_codes, explanation_hu, runner_up, decision_json, decided_by, crawl_run_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,
-               $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24::jsonb,'engine',$25)
-       RETURNING id`,
-      [
-        matchRelationId, variant.id, decision.sourceListingId, shopId, decision.status,
-        policy.matcherVersion, policy.taxonomyVersion, policy.policyVersion,
-        decision.candidateSources,
-        JSON.stringify(Object.fromEntries(
-          opts.candidates.map((c) => [c.listingId, c.channels]),
-        )),
-        JSON.stringify(decision.fieldResults),
-        JSON.stringify(decision.hardContradictions),
-        decision.agreementScore, decision.evidenceCoverage, decision.extractionQuality,
-        decision.retrievalSupport, decision.topMargin, decision.decisionStrength,
-        decision.contradictionCount, decision.negativeHistory,
-        decision.reasonCodes, decision.explanationHu,
-        JSON.stringify(decision.runnerUp), JSON.stringify(decision),
-        opts.crawlRunId,
-      ],
+    // Mar igazolt (valtozat, bolt) par? A lenti ket dontes is ezen mulik.
+    const alreadyVerified = await client.query<{ source_listing_id: string }>(
+      `SELECT source_listing_id::text FROM match_relations
+        WHERE canonical_variant_id = $1 AND shop_id = $2
+          AND status = 'verified' AND valid_to IS NULL`,
+      [variant.id, shopId],
     );
-    const decisionId = decisionRow.rows[0]!.id;
+
+    // ── Dontesi rekord (audit) ────────────────────────────────────────────
+    const decisionId = await recordDecision(client, opts, matchRelationId);
     if (matchRelationId) {
       await client.query('UPDATE match_relations SET current_decision_id = $2 WHERE id = $1', [matchRelationId, decisionId]);
     }
 
     // ── variant_shop_status frissitese ────────────────────────────────────
+    //
+    // Egy listing kiertekelese nem mondhat ellent egy MASIK listing igazolt
+    // parositasanak. Elesben pontosan ez tortent: a valtozat a boltban mar
+    // igazolt volt, a bolt egy masodik listingjet a sopres percenkent
+    // ujraertekelte, es a par allapotat minden alkalommal `needs_review`-ra
+    // irta, `matched_listing_id` nelkul. A termeklap igy egy igazolt part
+    // "ellenorzes szukseges"-nek mutatott.
+    const verifiedElsewhere = opts.origin === 'cluster'
+      && decision.status !== 'auto_verified' && decision.status !== 'human_verified'
+      && alreadyVerified.rows.some((r) => r.source_listing_id !== decision.sourceListingId);
+
     const nextSearchInterval = nextSearchFor(decision.status);
-    await client.query(
+    if (!verifiedElsewhere) await client.query(
       `INSERT INTO variant_shop_status
          (canonical_variant_id, shop_id, status, matched_listing_id, last_search_at,
           last_full_search_at, search_attempt_count, consecutive_no_match,
@@ -520,14 +518,6 @@ export async function persistDecision(
     // Mar igazolt (valtozat, bolt) parra NEM nyitunk esetet. A dontes
     // megszuletett; egy ujrafuttatas ebbol nem csinalhat ujra teendot -
     // kulonben a sor magatol notte volna vissza magat minden korben.
-    const alreadyVerified = await client.query<{ id: string }>(
-      `SELECT id FROM match_relations
-        WHERE canonical_variant_id = $1 AND shop_id = $2
-          AND status = 'verified' AND valid_to IS NULL
-        LIMIT 1`,
-      [variant.id, shopId],
-    );
-
     if (needsReview && decision.sourceListingId && !alreadyVerified.rows[0]) {
       const caseType = decision.status === 'ambiguous' ? 'ambiguous' : 'new_match';
       // A sorrend a hozamot koveti. A teljesen bizonyitott azonossagu eset -
@@ -638,6 +628,92 @@ export async function persistDecision(
 
     return { reviewCaseId, matchRelationId };
   });
+}
+
+/**
+ * A dontesi sor irasa - vagy a meglevo megerositese.
+ *
+ * Ha ugyanarra a (valtozat, bolt, listing) harmasra a legutobbi dontes
+ * PONTOSAN ugyanaz - allapot, verziok, jeloltcsatornak es a teljes dontesi
+ * payload -, nem irunk uj sort. A meglevo `seen_count`-ja no, a
+ * `last_seen_at` pedig megmondja, mikor erositette meg a motor utoljara.
+ *
+ * Enelkul minden ismetelt kiertekeles - egy hurok, a heti ujrakereses, egy
+ * kezi ujrafuttatas - egy ~4 KB-os masolatot hagyott maga utan. 2026
+ * szeptembereben ebbol 22 nap alatt 38 GB lett, 99,9%-ban azonos sorokbol.
+ */
+async function recordDecision(
+  client: PoolClient,
+  opts: PersistDecisionOpts,
+  matchRelationId: string | null,
+): Promise<string> {
+  const { decision, variant, shopId, policy } = opts;
+  const decisionJson = JSON.stringify(decision);
+  const candidateRanks = JSON.stringify(Object.fromEntries(
+    opts.candidates.map((c) => [c.listingId, c.channels]),
+  ));
+
+  // A listing szerinti szures indexelheto (`match_decisions_listing_idx`), az
+  // IS NOT DISTINCT FROM nem - ezert a ket esetet kulon irjuk. A $3-ra mindket
+  // agban hivatkozni kell, kulonben a Postgres nem tudja a tipusat.
+  const listingFilter = decision.sourceListingId
+    ? 'source_listing_id = $3::uuid'
+    : '$3::uuid IS NULL AND source_listing_id IS NULL';
+  const previous = await client.query<{ id: string; same: boolean }>(
+    `SELECT id::text,
+            (decided_by = 'engine'
+             AND status = $4
+             AND matcher_version = $5 AND taxonomy_version = $6 AND policy_version = $7
+             AND match_relation_id IS NOT DISTINCT FROM $8::uuid
+             AND candidate_ranks = $9::jsonb
+             AND decision_json = $10::jsonb) AS same
+       FROM match_decisions
+      WHERE canonical_variant_id = $1 AND shop_id = $2 AND ${listingFilter}
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [
+      variant.id, shopId, decision.sourceListingId, decision.status,
+      policy.matcherVersion, policy.taxonomyVersion, policy.policyVersion,
+      matchRelationId, candidateRanks, decisionJson,
+    ],
+  );
+
+  const prev = previous.rows[0];
+  if (prev?.same) {
+    await client.query(
+      `UPDATE match_decisions SET seen_count = seen_count + 1, last_seen_at = now() WHERE id = $1`,
+      [prev.id],
+    );
+    return prev.id;
+  }
+
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO match_decisions
+       (match_relation_id, canonical_variant_id, source_listing_id, shop_id, status,
+        matcher_version, taxonomy_version, policy_version, candidate_sources,
+        candidate_ranks, field_results, hard_contradictions,
+        agreement_score, evidence_coverage, extraction_quality, retrieval_support,
+        top_margin, decision_strength, contradiction_count, negative_history,
+        reason_codes, explanation_hu, runner_up, decision_json, decided_by, crawl_run_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,
+             $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24::jsonb,'engine',$25)
+     RETURNING id`,
+    [
+      matchRelationId, variant.id, decision.sourceListingId, shopId, decision.status,
+      policy.matcherVersion, policy.taxonomyVersion, policy.policyVersion,
+      decision.candidateSources,
+      candidateRanks,
+      JSON.stringify(decision.fieldResults),
+      JSON.stringify(decision.hardContradictions),
+      decision.agreementScore, decision.evidenceCoverage, decision.extractionQuality,
+      decision.retrievalSupport, decision.topMargin, decision.decisionStrength,
+      decision.contradictionCount, decision.negativeHistory,
+      decision.reasonCodes, decision.explanationHu,
+      JSON.stringify(decision.runnerUp), decisionJson,
+      opts.crawlRunId,
+    ],
+  );
+  return inserted.rows[0]!.id;
 }
 
 /** Ismetelt keresesi strategia (spec 16.2). */
@@ -805,6 +881,7 @@ export async function evaluateListingForClustering(opts: {
     policy: opts.policy,
     crawlRunId: opts.crawlRunId ?? null,
     candidates: [asCandidate],
+    origin: 'cluster',
   });
 
   if (best.decision.status === 'auto_verified') {

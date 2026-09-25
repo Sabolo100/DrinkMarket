@@ -73,6 +73,11 @@ export function Shell({ user, csrfToken, shops, counts, children }: Props) {
             {user.role === 'admin' && <NavLink href="/felhasznalok">Felhasználók</NavLink>}
             <NavLink href="/auditnaplo">Auditnapló</NavLink>
           </div>
+
+          {/* Melyik build fut: a verzió és a forrás tartalmi hash-e (CHANGELOG.md). */}
+          <div className="build-stamp" title="A futó felület verziója és build-azonosítója">
+            v{process.env.APP_VERSION} · {process.env.APP_BUILD}
+          </div>
         </nav>
 
         <main className="main" id="tartalom">{children}</main>

@@ -11,3 +11,7 @@ storage/
 tmp/
 playwright-report/
 .DS_Store
+# A scripts/build-info.mjs a Docker buildben irja
+build-info.json
+# Titkokat tartalmaz (Coolify token, Resend kulcs) - soha ne keruljon a repoba
+Coolifytoken.txt

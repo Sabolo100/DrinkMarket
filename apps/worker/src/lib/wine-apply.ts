@@ -437,6 +437,9 @@ export async function applyWineIdentity(
        -- azt ember hagyta jova, es a felulvizsgalat kulon dontes.
        cluster_status  = CASE WHEN cluster_status = 'clustered' THEN cluster_status
                               ELSE 'unclustered' END,
+       -- Uj azonossag, uj esely: a korabbi eredmenytelen kiertekeles miatti
+       -- varakozas sem ervenyes tovabb, a sopres azonnal elveheti.
+       cluster_retry_at = NULL,
        updated_at      = now()
      WHERE id = $1`,
     [

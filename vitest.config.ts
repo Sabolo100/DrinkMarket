@@ -20,5 +20,9 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     testTimeout: 20000,
+    // Az e2e fajlok ugyanazt a TEST_DATABASE_URL adatbazist hasznaljak, es
+    // mindegyik a sajat tablait uriti ki az elejen - parhuzamosan egymas
+    // alol huznak ki a sorokat.
+    fileParallelism: !process.env['TEST_DATABASE_URL'],
   },
 });

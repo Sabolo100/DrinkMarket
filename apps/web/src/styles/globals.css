@@ -433,6 +433,17 @@ a:hover { text-decoration: underline; text-decoration-thickness: 1px; }
 }
 .nav-item .count[data-alert='true'] { color: var(--rust); font-weight: 700; }
 
+.build-stamp {
+  padding: 0 var(--s-5);
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Keskeny kijelzőn a sáv vízszintes: ott a sor közepére igazodjon. */
+  align-self: center;
+}
+
 .main { flex: 1; min-width: 0; padding: var(--s-6) var(--s-6) var(--s-9); }
 
 /* Oldalfej: a főkönyv fejezetcíme */

@@ -9,7 +9,7 @@ import { Queue, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { closeDb, execute, initDb, query, withAdvisoryLock } from '@radovin/db';
-import { configureLogger, logger, newCorrelationId } from '@radovin/observability';
+import { buildInfo, configureLogger, logger, newCorrelationId } from '@radovin/observability';
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1, 'A DATABASE_URL kotelezo.'),
@@ -260,16 +260,11 @@ async function tick(redisUrl: string, staleMinutes: number): Promise<void> {
     //
     // A sopres kotegelt es folytathato - a `cluster_status` maga a kurzor -,
     // ezert eleg tickenkent egyszer inditani.
+    // A `cluster_sweep_backlog` UGYANAZ a halmaz, amit a sopres lat. Ha itt
+    // tobbet szamolnank, az utemezo percenkent inditana egy sopreset, ami
+    // egyetlen sort sem talal.
     const unclustered = await query<{ count: number }>(
-      `SELECT count(*)::int AS count
-         FROM source_listings sl
-         JOIN shops s ON s.id = sl.shop_id
-        WHERE sl.listing_status = 'active'
-          AND sl.cluster_status = 'unclustered'
-          AND s.active AND NOT s.policy_disabled
-          -- A sopres ezeket kihagyja. Ha itt beleszamitanank oket, az utemezo
-          -- percenkent inditana egy sopreset, ami egyetlen sort sem talal.
-          AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)`,
+      'SELECT count(*)::int AS count FROM cluster_sweep_backlog',
     );
     if ((unclustered[0]?.count ?? 0) > 0) {
       const ok = await schedule({
@@ -406,7 +401,7 @@ async function main(): Promise<void> {
   // Bovebb a szivveres periodusanal (30 mp) es egy adatbazis-tuskenel is, de
   // rovidebb annal, hogy egy megszakadt futas erdemben blokkoljon egy boltot.
   const staleMinutes = Number.parseInt(env.STALE_RUN_MINUTES ?? '15', 10) || 15;
-  logger.info('scheduler.starting', { tickSeconds, staleMinutes });
+  logger.info('scheduler.starting', { ...buildInfo(), tickSeconds, staleMinutes });
 
   let running = true;
   let timer: NodeJS.Timeout | null = null;

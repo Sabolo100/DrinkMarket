@@ -423,7 +423,7 @@ export async function processRetentionCleanup(
     const settings = await getSettings();
     const retention = (settings.settings.get('retention') ?? {}) as {
       rawArtifactDays?: number; snapshotDays?: number;
-      observationDays?: number; metricDays?: number;
+      observationDays?: number; metricDays?: number; decisionDays?: number;
     };
 
     const artifactsRemoved = await cleanupArtifacts(config);
@@ -449,6 +449,8 @@ export async function processRetentionCleanup(
 
     const sessions = await execute(`DELETE FROM sessions WHERE expires_at < now() - interval '7 days'`);
 
+    const decisions = await pruneSupersededDecisions(retention.decisionDays ?? 180);
+
     // Elhalasztott review esetek visszanyitasa
     const reopened = await execute(
       `UPDATE review_cases SET status = 'open', deferred_until = NULL
@@ -461,11 +463,58 @@ export async function processRetentionCleanup(
     );
 
     logger.info('retention.cleanup', {
-      artifactsRemoved, snapshots, observations, metricRows, sessions, reopened, jobs,
+      artifactsRemoved, snapshots, observations, metricRows, sessions, decisions, reopened, jobs,
     });
 
-    return { artifactsRemoved, snapshots, observations, metricRows, sessions, reopenedReviews: reopened, jobs };
+    return {
+      artifactsRemoved, snapshots, observations, metricRows, sessions, decisions,
+      reopenedReviews: reopened, jobs,
+    };
   });
+}
+
+/**
+ * A dontesi naplo retencioja.
+ *
+ * Torolheto az a GEPI dontes, amely
+ *  - regebbi a megorzesi idonel,
+ *  - ugyanarra a (valtozat, bolt, listing) harmasra mar van ujabb dontes,
+ *  - es semmi nem hivatkozik ra (se az elo parositas, se egy review eset).
+ *
+ * Tehat soha nem torlodik: az emberi es rendszer-dontes, harmasonkent a
+ * legutolso dontes, es amire a felulet vagy a parositas epit. Korabban ez a
+ * tabla egyaltalan nem fogyott - 2026 szeptembereben 22 nap alatt 38 GB lett.
+ *
+ * Kotegekben torlunk, hogy egy nagy hatralek se tartson egyetlen hosszu
+ * tranzakciot es egyetlen nagy WAL-loketet.
+ */
+export async function pruneSupersededDecisions(days: number): Promise<number> {
+  const BATCH = 5000;
+  const MAX_BATCHES = 200;
+  let total = 0;
+  for (let i = 0; i < MAX_BATCHES; i++) {
+    const removed = await execute(
+      `DELETE FROM match_decisions
+        WHERE id IN (
+          SELECT d.id
+            FROM match_decisions d
+           WHERE d.decided_by = 'engine'
+             AND d.created_at < now() - ($1 || ' days')::interval
+             AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.current_decision_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM review_cases rc WHERE rc.match_decision_id = d.id)
+             AND EXISTS (
+               SELECT 1 FROM match_decisions n
+                WHERE n.canonical_variant_id = d.canonical_variant_id
+                  AND n.shop_id IS NOT DISTINCT FROM d.shop_id
+                  AND n.source_listing_id IS NOT DISTINCT FROM d.source_listing_id
+                  AND n.created_at > d.created_at)
+           LIMIT $2)`,
+      [String(days), BATCH],
+    );
+    total += removed;
+    if (removed < BATCH) break;
+  }
+  return total;
 }
 
 /** Riasztasok kikuldese webhookra (spec 30.3). */

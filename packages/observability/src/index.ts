@@ -7,6 +7,8 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -166,4 +168,37 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
   }
+}
+
+export interface BuildInfo {
+  version: string;
+  /** A forrás tartalmi hash-e (scripts/build-info.mjs); fejlesztéskor `dev`. */
+  build: string;
+  builtAt: string | null;
+}
+
+let buildInfoCache: BuildInfo | null = null;
+
+/**
+ * Melyik verzió fut. A Docker image a munkakönyvtárba (`/app`) írja a
+ * build-info.json-t; fejlesztéskor ez hiányzik, ilyenkor a gyökér
+ * package.json verziója és `dev` a build.
+ */
+export function buildInfo(): BuildInfo {
+  if (buildInfoCache) return buildInfoCache;
+  const read = (file: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(readFileSync(path.resolve(process.cwd(), file), 'utf8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+  const info = read('build-info.json');
+  const pkg = info ? null : read('package.json');
+  buildInfoCache = {
+    version: String(info?.['version'] ?? pkg?.['version'] ?? '0.0.0'),
+    build: String(info?.['build'] ?? 'dev'),
+    builtAt: typeof info?.['builtAt'] === 'string' ? info['builtAt'] : null,
+  };
+  return buildInfoCache;
 }

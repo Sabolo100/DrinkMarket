@@ -438,8 +438,11 @@ export async function settingsRoutes(app: FastifyInstance, _config: AppConfig): 
            (SELECT count(*)::int FROM review_cases WHERE status IN ('open','in_progress'))                 AS review_open,
            (SELECT count(*)::int FROM review_cases WHERE resolution = 'approved')                          AS review_approved,
            (SELECT count(*)::int FROM review_cases WHERE resolution = 'rejected')                          AS review_rejected,
-           (SELECT count(*)::int FROM match_decisions WHERE status = 'ambiguous')                          AS ambiguous,
-           (SELECT count(*)::int FROM match_decisions WHERE status = 'insufficient_evidence')              AS insufficient,
+           -- A (valtozat, bolt) parok MOSTANI allapota, nem a dontesi naplo
+           -- sorai: egy ujraertekeles nem noveli a szamot. A naploszam
+           -- 2026 szeptembereben 3,2 milliot mutatott ~140 parra.
+           (SELECT count(*)::int FROM variant_shop_status WHERE status = 'ambiguous')                      AS ambiguous,
+           (SELECT count(*)::int FROM variant_shop_status WHERE status = 'insufficient_evidence')          AS insufficient,
            (SELECT count(*)::int FROM match_relations WHERE status = 'drifted')                            AS drifted,
            (SELECT round(avg(top_margin)::numeric, 4) FROM match_decisions
              WHERE top_margin IS NOT NULL AND created_at > now() - interval '30 days')                      AS avg_top_margin`,

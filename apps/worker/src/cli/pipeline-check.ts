@@ -148,7 +148,7 @@ async function main(): Promise<void> {
 
   const alap = await query<{
     valtozat: number; vss: number; parok: number; boltok: number; listing: number;
-    unclustered: number;
+    unclustered: number; parked: number;
   }>(
     `SELECT (SELECT count(*)::int FROM canonical_variants WHERE status <> 'merged') AS valtozat,
             (SELECT count(*)::int FROM variant_shop_status) AS vss,
@@ -156,15 +156,18 @@ async function main(): Promise<void> {
               WHERE status = 'verified' AND valid_to IS NULL) AS parok,
             (SELECT count(*)::int FROM shops WHERE active AND NOT policy_disabled) AS boltok,
             (SELECT count(*)::int FROM source_listings WHERE listing_status = 'active') AS listing,
-            (SELECT count(*)::int FROM source_listings sl JOIN shops s ON s.id = sl.shop_id
-              WHERE sl.listing_status = 'active' AND sl.cluster_status = 'unclustered'
-                AND s.active AND NOT s.policy_disabled
-                AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)) AS unclustered`,
+            (SELECT count(*)::int FROM cluster_sweep_backlog) AS unclustered,
+            -- Kiertekelve, de eredmenytelenul: a sopres a cluster_retry_at-ig
+            -- nem nyul hozzajuk (0024).
+            (SELECT count(*)::int FROM source_listings
+              WHERE listing_status = 'active' AND cluster_status = 'unclustered'
+                AND cluster_retry_at > now()) AS parked`,
   );
   const a = alap[0];
   console.log(`  aktiv webshop                              ${String(a?.boltok ?? 0).padStart(7)}`);
   console.log(`  aktiv listing                              ${String(a?.listing ?? 0).padStart(7)}`);
   console.log(`    ebbol meg beklaszterezetlen              ${String(a?.unclustered ?? 0).padStart(7)}`);
+  console.log(`    ujraprobalasra var (cluster_retry_at)    ${String(a?.parked ?? 0).padStart(7)}`);
   console.log(`  kanonikus valtozat                         ${String(a?.valtozat ?? 0).padStart(7)}`);
   console.log(`  igazolt parositas                          ${String(a?.parok ?? 0).padStart(7)}`);
   console.log(`  valtozat-bolt sor (ujraertekelheto)        ${String(a?.vss ?? 0).padStart(7)}`);

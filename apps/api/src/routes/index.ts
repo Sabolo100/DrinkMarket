@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { query } from '@radovin/db';
 import { REASON_CODE_HU } from '@radovin/contracts';
+import { buildInfo } from '@radovin/observability';
 import type { AppConfig } from '../config.js';
 import { authRoutes } from './auth.js';
 import { productRoutes } from './products.js';
@@ -21,7 +22,8 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
     api.get('/health', async () => ({
       status: 'ok',
       service: 'radovin-price-intelligence-api',
-      version: '2.1.0',
+      version: buildInfo().version,
+      build: buildInfo().build,
       time: new Date().toISOString(),
     }));
 

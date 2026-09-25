@@ -4,7 +4,7 @@
  * (advisory lock alatt), majd elindul a HTTP szerver.
  */
 import { closeDb, initDb, migrate, query } from '@radovin/db';
-import { addMetricSink, configureLogger, logger } from '@radovin/observability';
+import { addMetricSink, buildInfo, configureLogger, logger } from '@radovin/observability';
 import { loadConfig } from './config.js';
 import { buildServer } from './server.js';
 import { ensureBootstrapAdmin } from './lib/auth.js';
@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   });
 
   logger.info('api.starting', {
+    ...buildInfo(),
     nodeEnv: config.NODE_ENV,
     port: config.API_PORT,
     appName: config.APP_NAME,

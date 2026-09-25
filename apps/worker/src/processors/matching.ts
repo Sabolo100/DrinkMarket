@@ -116,56 +116,102 @@ export async function processClusterListing(
   const { sourceListingId } = job.data;
 
   return withContext({ correlationId, listingId: sourceListingId }, async () => {
-    const [taxonomy, policy] = await Promise.all([getTaxonomy(), getMatchPolicy()]);
-
-    const result = await evaluateListingForClustering({
-      listingId: sourceListingId, taxonomy, policy,
-    });
-
-    // Ha nincs jelolt kanonikus valtozat, javaslunk egyet a listingbol,
-    // majd azonnal keressuk a parjait a TOBBI webshopban (spec 9.5/2).
-    if (result.status === 'no_variant_candidate' || result.status === 'all_rejected') {
-      const created = await promoteListingToVariant(sourceListingId, null);
-      if (created) {
-        // A kotegelt sopres parhuzamosan futtat sok klaszterezest, ezert
-        // kozben letrejohetett ugyanennek a bornak a valtozata egy masik
-        // boltbol. Ilyenkor NEM kotjuk oda vakon - ujra elbiraljuk, most mar
-        // a letezo valtozat ellen. Igy a dontes ugyanazon a kapun megy at,
-        // mint barmelyik masik.
-        const linked = await queryOne<{ id: string }>(
-          `SELECT id FROM match_relations
-            WHERE canonical_variant_id = $1 AND source_listing_id = $2 AND valid_to IS NULL
-            LIMIT 1`,
-          [created, sourceListingId],
-        );
-        if (!linked) {
-          const second = await evaluateListingForClustering({
-            listingId: sourceListingId, taxonomy, policy,
-          });
-          return { ...second, retriedAgainstVariantId: created };
-        }
-
-        await enqueueFromWorker(config, {
-          queue: 'candidate-generation', name: 'search-all-shops',
-          payload: { canonicalVariantId: created, trigger: 'auto_discovery' },
-          idempotencyKey: `search:${created}:auto`,
-          correlationId,
-        });
-        return { ...result, promotedVariantId: created, crossShopSearchQueued: true };
-      }
-    }
-
-    if (result.status === 'auto_verified') {
-      await enqueueFromWorker(config, {
-        queue: 'aggregate-dashboard', name: 'rebuild',
-        payload: { trigger: 'cluster' },
-        idempotencyKey: 'aggregate:rebuild',
-        delayMs: 120_000, correlationId,
-      });
-    }
-
+    const result = await clusterListing(sourceListingId, config, correlationId);
+    await parkIfStillUnclustered(sourceListingId, String(result.status));
     return result;
   });
+}
+
+/**
+ * A sopres kurzora a `cluster_status`. Ha a listing a kiertekeles utan is
+ * `unclustered` maradt - nincs eleg bizonyitek, vagy a valtozat abban a
+ * boltban mar egy MASIK listinggel igazolt, tehat eset sem nyilik -, a
+ * kovetkezo perc sopresenek ugyanaz lenne az elso sora, ugyanazzal az
+ * eredmennyel.
+ *
+ * Elesben pontosan ez tortent: ugyanaz a ~300 listing percenkent, 22 napon
+ * at, napi 420 ezer dontesi sorral - mogotte 10 447 listing, ami sosem kerult
+ * sorra. A `cluster_retry_at` addig kiveszi a listinget a sopresbol. Ha kozben
+ * a listing adata valtozik, a felderites kulon jobot indit ra, az nem var.
+ */
+async function parkIfStillUnclustered(listingId: string, status: string): Promise<void> {
+  await execute(
+    `UPDATE source_listings SET cluster_retry_at = now() + $2::interval
+      WHERE id = $1 AND cluster_status = 'unclustered'`,
+    [listingId, clusterRetryAfter(status)],
+  );
+}
+
+function clusterRetryAfter(status: string): string {
+  switch (status) {
+    // A motor dontott, csak nem eleg erosen. Uj bizonyitek nelkul holnap is
+    // ugyanezt mondana. Uj bizonyitekot jellemzoen egy boraszat- vagy
+    // fajtajovahagyas hoz - ezek utemehez egy het boven eleg.
+    case 'needs_review':
+    case 'ambiguous':
+    case 'insufficient_evidence':
+      return '7 days';
+    // Nem dontes, hanem akadaly (a valtozat-javaslat zarja foglalt, hianyzik
+    // a kategoria): ez hamarabb megszunhet.
+    default:
+      return '1 day';
+  }
+}
+
+async function clusterListing(
+  sourceListingId: string,
+  config: WorkerConfig,
+  correlationId: string,
+): Promise<{ status: string } & Record<string, unknown>> {
+  const [taxonomy, policy] = await Promise.all([getTaxonomy(), getMatchPolicy()]);
+
+  const result = await evaluateListingForClustering({
+    listingId: sourceListingId, taxonomy, policy,
+  });
+
+  // Ha nincs jelolt kanonikus valtozat, javaslunk egyet a listingbol,
+  // majd azonnal keressuk a parjait a TOBBI webshopban (spec 9.5/2).
+  if (result.status === 'no_variant_candidate' || result.status === 'all_rejected') {
+    const created = await promoteListingToVariant(sourceListingId, null);
+    if (created) {
+      // A kotegelt sopres parhuzamosan futtat sok klaszterezest, ezert
+      // kozben letrejohetett ugyanennek a bornak a valtozata egy masik
+      // boltbol. Ilyenkor NEM kotjuk oda vakon - ujra elbiraljuk, most mar
+      // a letezo valtozat ellen. Igy a dontes ugyanazon a kapun megy at,
+      // mint barmelyik masik.
+      const linked = await queryOne<{ id: string }>(
+        `SELECT id FROM match_relations
+          WHERE canonical_variant_id = $1 AND source_listing_id = $2 AND valid_to IS NULL
+          LIMIT 1`,
+        [created, sourceListingId],
+      );
+      if (!linked) {
+        const second = await evaluateListingForClustering({
+          listingId: sourceListingId, taxonomy, policy,
+        });
+        return { ...second, retriedAgainstVariantId: created };
+      }
+
+      await enqueueFromWorker(config, {
+        queue: 'candidate-generation', name: 'search-all-shops',
+        payload: { canonicalVariantId: created, trigger: 'auto_discovery' },
+        idempotencyKey: `search:${created}:auto`,
+        correlationId,
+      });
+      return { ...result, promotedVariantId: created, crossShopSearchQueued: true };
+    }
+  }
+
+  if (result.status === 'auto_verified') {
+    await enqueueFromWorker(config, {
+      queue: 'aggregate-dashboard', name: 'rebuild',
+      payload: { trigger: 'cluster' },
+      idempotencyKey: 'aggregate:rebuild',
+      delayMs: 120_000, correlationId,
+    });
+  }
+
+  return result;
 }
 
 export interface PromotePayload {

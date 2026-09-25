@@ -13,7 +13,9 @@
  *
  *  - A `cluster_status` MAGA a kurzor. Nem tarolunk kulon pozíciot, amit egy
  *    megszakadt futas elronthatna: ami mar `clustered` vagy `needs_review`,
- *    az kiesik a kovetkezo kotegbol.
+ *    az kiesik a kovetkezo kotegbol. Ami a kiertekeles utan is `unclustered`
+ *    maradt, az a `cluster_retry_at`-ig szinten kiesik - kulonben a
+ *    kovetkezo koteg eleje ugyanaz lenne (0024).
  *  - A sorbaallitas idempotens (`cluster:<listingId>` kulcs), ezert egy
  *    ismetelt futas nem duplikal jobot.
  */
@@ -48,38 +50,31 @@ export async function processClusterSweep(
     const filters: string[] = [];
     if (job.data.shopKey) {
       params.push(job.data.shopKey);
-      filters.push(`AND s.key = $${params.length}`);
+      filters.push(`AND b.shop_key = $${params.length}`);
     }
     if (job.data.segments?.length) {
       params.push(job.data.segments);
-      filters.push(`AND s.segment = ANY($${params.length}::text[])`);
+      filters.push(`AND b.shop_segment = ANY($${params.length}::text[])`);
     }
     params.push(limit);
 
+    // A halmazt a `cluster_sweep_backlog` nezet definialja (0024) - ugyanazt
+    // latja az utemezo, a Folyamatkezeles es a pipeline-check is. Ket dolgot
+    // zar ki, amitol a sor eleje korabban bedugult:
+    //  - aminek MAR van ervenyes igazolt kanonikus parja (d4d7a1d),
+    //  - ami a legutobbi kiertekeles utan is `unclustered` maradt, amig a
+    //    `cluster_retry_at` le nem jar. Enelkul ugyanaz a ~300 listing jott
+    //    elo percenkent, es mindegyik uj dontesi sort irt.
+    //
     // A sorrend szandekos: eloszor azok a listingek, amiknek MAR van
     // feloldott termeloje. Azoknal van esely valodi parositasra - a termelo
     // a bor kategoriaban kotelezo mezo. A tobbi utanuk jon, hogy a
     // katalogus tisztitasa se alljon meg.
     const rows = await query<{ id: string }>(
-      `SELECT sl.id::text
-         FROM source_listings sl
-         JOIN shops s ON s.id = sl.shop_id
-        WHERE sl.listing_status = 'active'
-          AND sl.cluster_status = 'unclustered'
-          AND s.active AND NOT s.policy_disabled
-          -- Aminek MAR van ervenyes igazolt kanonikus parja, azon nincs mit
-          -- klaszterezni. A cluster_status ilyenkor csak konyvelesi
-          -- lemaradas - de a kovetkezmenye sulyos volt: a motor ujra dontott,
-          -- masik valtozatra jutott, es az egy-igazolt-par-listingenkent
-          -- indexbe utkozott. A job elszallt, a sor allapota nem valtozott,
-          -- es a determinisztikus rendezes miatt a kovetkezo korben ugyanaz
-          -- jott elo. A sor eleje igy vegleg bedugult.
-          AND NOT EXISTS (
-            SELECT 1 FROM match_relations mr
-             WHERE mr.source_listing_id = sl.id
-               AND mr.status = 'verified' AND mr.valid_to IS NULL)
-          ${filters.join(' ')}
-        ORDER BY (sl.producer_id IS NULL), sl.id
+      `SELECT b.id::text
+         FROM cluster_sweep_backlog b
+        WHERE true ${filters.join(' ')}
+        ORDER BY (b.producer_id IS NULL), b.id
         LIMIT $${params.length}`,
       params,
     );
@@ -95,16 +90,10 @@ export async function processClusterSweep(
       if (id) queued++;
     }
 
+    // UGYANAZ a halmaz, amit a fenti valogatas lat. Ha a ketto eltér, a szam
+    // egy padlon megall, es soha nem megy le nullara.
     const remaining = await query<{ count: number }>(
-      `SELECT count(*)::int AS count
-         FROM source_listings sl
-         JOIN shops s ON s.id = sl.shop_id
-        WHERE sl.listing_status = 'active'
-          AND sl.cluster_status = 'unclustered'
-          AND s.active AND NOT s.policy_disabled
-          -- UGYANAZ a halmaz, amit a fenti valogatas lat. Ha a ketto eltér,
-          -- a szam egy padlon megall, es soha nem megy le nullara.
-          AND NOT EXISTS (SELECT 1 FROM match_relations mr WHERE mr.source_listing_id = sl.id AND mr.status = 'verified' AND mr.valid_to IS NULL)`,
+      'SELECT count(*)::int AS count FROM cluster_sweep_backlog',
     );
 
     logger.info('cluster_sweep.done', {

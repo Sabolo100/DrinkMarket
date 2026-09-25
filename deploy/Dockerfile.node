@@ -38,6 +38,11 @@ COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY apps/worker/ apps/worker/
 COPY apps/scheduler/ apps/scheduler/
+# Verzió + a forrás tartalmi hash-e. Az API a /health válaszban, mindhárom
+# processz az induló logsorában mutatja - így látszik, melyik build fut.
+COPY scripts/build-info.mjs scripts/
+RUN node scripts/build-info.mjs build-info.json \
+      package.json package-lock.json packages apps/api apps/worker apps/scheduler
 # A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
 # devDependencies-t — köztük a typescriptet. Fordítani viszont abból kell.
 # A futtató image továbbra sem kapja meg: a deps stage `--omit=dev`-vel telepít.
@@ -52,6 +57,7 @@ COPY --from=deps  /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/${APP}/dist ./apps/${APP}/dist
 COPY --from=build /app/apps/${APP}/package.json ./apps/${APP}/package.json
+COPY --from=build /app/build-info.json ./build-info.json
 COPY package.json ./
 
 # A migrációkat az API futásidőben olvassa (packages/db/migrations)

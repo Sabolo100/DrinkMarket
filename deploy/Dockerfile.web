@@ -14,6 +14,10 @@ ARG API_INTERNAL_URL=http://api:4000
 ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 COPY package.json package-lock.json ./
 COPY apps/web/ apps/web/
+# Verzió + a forrás tartalmi hash-e: a next.config beégeti, a felület bal
+# alsó sarka mutatja.
+COPY scripts/build-info.mjs scripts/
+RUN node scripts/build-info.mjs apps/web/build-info.json package.json package-lock.json apps/web
 # A base stage NODE_ENV=production-t állít, amitől az npm install kihagyná a
 # devDependencies-t. A `next build` viszont a typescriptet és a @types/*
 # csomagokat is igényli (a next.config ignoreBuildErrors: false).
